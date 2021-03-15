@@ -1,9 +1,8 @@
 import os
 import asyncio
 import threading
+import functools
 import typing as t
-
-
 
 from watcher import BaseThread
 from watcher import EventQueue
@@ -14,6 +13,7 @@ from .notify import RemoteNotifiy
 from .events import HIVE_EVENTS
 
 DEFAULT_QUEUE_TIMEOUT = 1
+partial = lambda : functools.partial
 
 class Watch:
 
@@ -247,42 +247,73 @@ class HiveEventEmitter(EventEmitter):
         """
         return self._ignore_pattern
 
+    def teardown_watch(self):
+        """
+        Called when project deleted.
+
+        :return:
+        """
+
+    def _produce_watch(self, symbol):
+        """
+
+        :param event:
+        :return:
+        """
+        proj = symbol.proj
+        # proj type must be string type
+        if not isinstance(proj, str):
+            proj = str(proj)
+
+        watch = Watch(proj,
+                      self._lock_factory)
+        self.watches[proj] = watch
+        return watch
+
+    def _pull_event(self, symbol, watch):
+        """
+
+        :param event:
+        :return:
+        """
+        event_type = symbol.event_type
+
+        if event_type not in HIVE_EVENTS:
+            raise KeyError
+
+        return HIVE_EVENTS[event_type](watch, symbol)
+
     def queue_events(self, timeout):
         """
 
         :param timeout:
         :return:
         """
+        # 삭제도 동기화를 시킬지 시키지 않을지 옵션으로 주기
         with self._lock:
 
-            event = self._local_inotify.read_event()
-
-            new_watch = Watch(event.proj, self._lock_factory)
-            watch = self.watches.get(event.proj, None)
+            # Get local event symbol
+            symbol = self._local_inotify.read_event()
+            #Get watch from watches dictionary by project name
+            watch = self.watches.get(symbol.proj, None)
             if not watch:
-                watch = new_watch
-                self.watches[event.proj] = watch
+                watch = self._produce_watch(symbol)
 
             try:
-                event_class = HIVE_EVENTS[event.event_type]
-                event_impl = event_class(watch, event.path)# path parameter 바꿔야함
-                if not asyncio.iscoroutinefunction(event_impl):
-                    try:
-                        event_impl = event_impl()
-                    except TypeError as e:
-                        raise e
+                event = self._pull_event(symbol, watch)
+                if not asyncio.iscoroutine(event) and \
+                        isinstance(event, t.Callable):
+                    event = event()
 
-                task = self._task_factory(event_impl)
+                task = self._task_factory(event)
                 self.queue_event(task)
             except Exception as e:
                 if isinstance(e, KeyError):
                     raise e
                 raise e
 
-
     def on_thread_start(self):
        """
-
        :return:
        """
        self._local_inotify = LocalNotifiy(
