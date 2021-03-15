@@ -10,6 +10,30 @@ from .events import EventStatus
 # local event 와 remote event의 공통사항을 묶을 수 있는 interface 하나 정의하자
 # 이듦도 다시 짓자
 
+
+def pull_ext(path):
+    """
+    Function to pull the file extention
+    :param path:
+        file path
+        ex)
+            /user/defined/directory/file.ext
+    :return:
+        file extension
+        ex)
+            .txt, , .xml, .json etc..
+    """
+
+    file = path.split("/")[-1]
+    return file.split('.')
+
+try:
+    pull_ext = os.path.splitext
+
+except:
+    pull_ext = pull_ext
+
+
 class EventSymbol:
 
     def __init__(self,
@@ -36,12 +60,14 @@ class EventSymbol:
 
 class LocalEventSymbol(EventSymbol):
 
+    # file 확장자 정보 담기
     def __init__(self,
                  proj: str,
                  path: str,
                  event_type: 'enum'):
         super().__init__(proj, event_type)
         self.path = path
+        self.file_ext = pull_ext(self.path)
 
     @property
     def is_modified(self):
@@ -60,6 +86,8 @@ class LocalEventSymbol(EventSymbol):
         #key에 status도 추가해야 하지 않을까????
 
         return self.proj, self.path
+
+
 
     def __eq__(self, event):
         return self.key == event.key
