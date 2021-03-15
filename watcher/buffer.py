@@ -6,16 +6,42 @@ import typing as t
 
 from .events import EventStatus
 
-class Event:
+# buffer 단에서
+# local event 와 remote event의 공통사항을 묶을 수 있는 interface 하나 정의하자
+# 이듦도 다시 짓자
+
+class EventSymbol:
+
+    def __init__(self,
+                 proj: str,
+                 event_type: 'enum'):
+
+        self.proj = proj
+        self.event_type = event_type
+
+    @property
+    def key(self):
+        raise NotImplementedError
+
+    def __eq__(self, event):
+        return self.key == event.key
+
+    def __ne__(self, event):
+        return self.key == event.key
+
+    def __hash__(self):
+        return hash(self.key)
+
+
+
+class LocalEventSymbol(EventSymbol):
 
     def __init__(self,
                  proj: str,
                  path: str,
                  event_type: 'enum'):
-
-        self.proj = proj
+        super().__init__(proj, event_type)
         self.path = path
-        self.event_type = event_type
 
     @property
     def is_modified(self):
@@ -45,7 +71,7 @@ class Event:
         return hash(self.key)
 
 
-class RemoteEvent:
+class RemoteEventSymbol(EventSymbol):
 
     def __init__(self,
                  proj: str,
@@ -93,7 +119,7 @@ class LocalBuffer:
 
     def _knock_dir(self,
                    path: str,
-                   events: t.Set[Event],
+                   events: t.Set[LocalEventSymbol],
                    new_files: t.Dict[str, t.Tuple[str, float]],
                    depth: int,
                    proj: t.Optional[str]=None):
@@ -115,7 +141,7 @@ class LocalBuffer:
 
     def _knock_file(self,
                     path: str,
-                    events: t.Set[Event],
+                    events: t.Set[LocalEventSymbol],
                     new_files: t.Dict[str, t.Tuple[str, float]],
                     stat: os.stat,
                     proj: str):
@@ -125,17 +151,17 @@ class LocalBuffer:
         old_proj, old_mtime = self.files.get(path, (None, None))
 
         if not old_mtime:
-            events.add(Event(proj,
-                             path,
-                             EventStatus.FILE_CREATED))
+            events.add(LocalEventSymbol(proj,
+                                        path,
+                                        EventStatus.FILE_CREATED))
         elif new_mtime != old_mtime:
-            events.add(Event(proj,
-                             path,
-                             EventStatus.FILE_MODIFIED))
+            events.add(LocalEventSymbol(proj,
+                                        path,
+                                        EventStatus.FILE_MODIFIED))
 
     def _knock(self,
                path: str,
-               events: t.Set[Event],
+               events: t.Set[LocalEventSymbol],
                new_files: t.Dict[str, t.Tuple[str, float]],
                depth: int):
 
@@ -145,7 +171,7 @@ class LocalBuffer:
             self._knock_file(path, events, new_files, os.stat(path))
 
     def read_events(self):
-        events: t.Set[Event] = set()
+        events: t.Set[LocalEventSymbol] = set()
         new_files: t.Dict[str, t.Dict[str, float]] = {}
         depth = 0
         try:
@@ -157,11 +183,13 @@ class LocalBuffer:
         deleted_files = self.files.keys() - new_files.keys()
 
         if deleted_files:
-            events |= {Event(self.files[deleted_file][0],
-                             deleted_file,
-                             EventStatus.FILE_DELETED)
+            events |= {LocalEventSymbol(self.files[deleted_file][0],
+                                        deleted_file,
+                                        EventStatus.FILE_DELETED)
                        for deleted_file in deleted_files}
+        #Todo file 저장하는거 코드 추
         self.files = new_files
+
         return events
 
 
@@ -181,9 +209,10 @@ class LocalBuffer:
 class RemoteBuffer(http.server.BaseHTTPRequestHandler):
 
     event = set()
-    #header()
-    #get_data()
-    #
+    # header()
+    # get_data()
+    # router 어떻게 시킬지
+
     def __init__(self, request, client_address, server):
         super().__init__(request, client_address, server)
 
