@@ -1,9 +1,17 @@
 import queue
 import threading
+from enum import IntEnum
 
 DEFAULT_QUEUE_TIMEOUT = 1
 QUEUE_MAX_SIZE = 4200
 
+
+class EventStatus(IntEnum):
+    FILE_DELETED   = 1
+    FILE_CREATED   = 2
+    FILE_MODIFIED  = 3
+    CREATE_CHANNEL = 4
+    DELETE_CHANNEL = 5
 
 class EventQueue(queue.Queue):
 
