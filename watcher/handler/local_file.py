@@ -1,12 +1,10 @@
 import os
+import typing as t
 import functools
-import asyncio
 import aiohttp
-import aiofiles.base
 import aiofiles
 from . import HandlerBase
 from ..utils import get_running_loop
-
 
 _open = functools.partial(
             aiofiles.threadpool._open,
@@ -30,48 +28,47 @@ class AsyncFileIO(aiofiles.base.AiofilesContextManager):
         self._obj = None
 
 class FileModifiedHandler(HandlerBase):
-
+    method = 'POST'
     def __init__(self,
                  event,
                  http_auth=None,
                  keep_alive=15,
                  timeout=300,
                  maxsize=100,
-                 headers=None):
+                 headers=None,
+                 **kwargs):
 
-        super().__init__(event, http_auth, headers)
+        super().__init__(event, keep_alive, http_auth, headers)
 
         self._limit = maxsize
-        self.keep_alive = keep_alive
+
         self.timeout = timeout
         self.session = None
         self.aiofile = None
 
-    async def handle(self):
+        self._file = self._event.target
 
+        file_name = self.headers.get('file-name', None)
+        if not file_name:
+            file_name = os.path.basename(self._file)
+            # remote client 파일 저장 장소는 client에서 설정 할 수 있도록하기
+            self.headers['file-name'] = file_name
+
+    @property
+    def data(self):
+        """
+
+        :return:
+        """
         stream = self._stream
 
-        if self.session is None:
-            await self._create_aiohttp_session()
-        file_name = os.path.basename(self._event.target)
-        async for host in self.channels:
-            # try:
-            async with self.session.post(
-                    host, data=stream(self._event.target)) as resp:
-                response = await resp.text()
-                # print(response)
-            # except:
-            #     pass
-        print(response)
-        await self.session.close()
-        await asyncio.sleep(3)
-        print("modified")
-        return response
+        return stream(self._file)
 
     async def _create_aiohttp_session(self):
 
         if not self.loop:
             loop = get_running_loop()
+
         self.session = aiohttp.ClientSession(
             loop=loop,
             auto_decompress=True,
@@ -84,83 +81,71 @@ class FileModifiedHandler(HandlerBase):
             )
         )
 
-    async def _stream(self, file_name):
+    async def create_session(self):
+        """
 
-        await self._set_aiofile(file_name)
+        :return:
+        """
+        if self.session is None:
+            await self._create_aiohttp_session()
+
+    async def _stream(self, file):
+        """
+        Method to generate file byte stream for massive file transfer.
+
+        :param file_name:
+            file name will be called
+
+        """
+        await self._set_aiofile(file)
 
         file = await self.file_open()
         chunk = await file.read(READ_SIZE)
-        chunk = b'hello\r\n'+chunk
+        chunk += chunk
         while chunk:
             yield chunk
             chunk = await file.read(READ_SIZE)
         await self.file_close()
 
     async def _set_aiofile(self, file_name):
-        self.aiofile =  AsyncFileIO(
+        """
+
+        :param
+            file_name:
+        """
+        self.aiofile = AsyncFileIO(
             _open(file_name)
         )
 
     async def file_open(self):
+        """
+        Method to open python file object
+
+        """
         return await self.aiofile.open()
 
     async def file_close(self):
+        """
+        Method to close python file object
+        """
         await self.aiofile.close()
 
 
 class FileCreatedHandler(FileModifiedHandler):
 
-    def __init__(self,
-                 event,
-                 http_auth=None,
-                 keep_alive=15,
-                 timeout=300,
-                 maxsize=100,
-                 headers=None):
+    method = 'POST'
 
-        super().__init__(event,
-                         http_auth,
-                         keep_alive,
-                         timeout,
-                         maxsize,
-                         headers)
-
-    async def handle(self):
-
-        self._watch.add_path(self._event.target)
-
-        stream = self._stream
-
-        if self.session is None:
-            await self._create_aiohttp_session()
-        reponses = []
-        file_name = os.path.basename(self._event.target)
-        async for host in self.channels:
-            # try:
-            async with self.session.post(
-                        host, data=stream(self._event.target)) as resp:
-                response = await resp.text()
-                reponses.append(response)
-                # print(response)
-            # except:
-            #     pass
-        print(response)
-        await self.session.close()
-        await asyncio.sleep(3)
-        print("created")
-        return response
+    def action_event(self):
+        self.watch.add_path(self._file)
 
 
-class FileDeletedHandler(HandlerBase):
+class FileDeletedHandler(FileModifiedHandler):
+    method = "POST"
 
-    def __init__(self,
-                 event,
-                 http_auth=None,
-                 headers=None):
-        super().__init__(event, http_auth, headers)
+    @property
+    def data(self):
+        return b''
 
-
-    async def handle(self):
+    def action_event(self):
         self.watch.discard_path(self._event.target)
-        await asyncio.sleep(0)
 
