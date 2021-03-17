@@ -1,5 +1,10 @@
 
+from . import server_on
 
+try:
+    server_on()
+except:
+    raise Exception
 #
 # buffer = LocalBuffer('../../test-config', 1, '\..*')
 # import time

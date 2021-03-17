@@ -1,18 +1,5 @@
 import typing as t
-import asyncio
 import concurrent.futures
-import watcher.handler.remote_file as rf
-import watcher.handler.local_file as lf
-
-from enum import IntEnum
-
-class EventStatus(IntEnum):
-    FILE_DELETED   = 1
-    FILE_CREATED   = 2
-    FILE_MODIFIED  = 3
-    CREATE_CHANNEL = 4
-    DELETE_CHANNEL = 5
-
 
 class EventBase:
 
@@ -20,20 +7,25 @@ class EventBase:
 
     def __init__(self,
                  watch: "Watch",
-                 target: str,
+                 symbol: "Symbol",
                  loop=None,
                  executor=None,
-                 handler_class=None):
-
-        # if loop is None:
-        #     loop = asyncio.get_running_loop()
+                 handler_class=None,
+                 **kwargs):
 
         self.loop = loop
         self._watch = watch
-        self._lock = self._watch.lock
-        self._target = target
         self._executor = executor
-        self.handler = self.handler_class(self)
+        self._lock = self._watch.lock
+
+        self._target = None # target file path
+        if hasattr(symbol, 'path'):
+            self._target = symbol.path
+
+        if handler_class:
+            self.handler_class = handler_class
+
+        self.handler = self.handler_class(self, **kwargs)
 
     @property
     def watch(self):
@@ -72,14 +64,13 @@ class EventBase:
         # 1. parameter 준비
         # 2. is coroutine 인지 아닌지
         # 3. 성공 or 실패 check 어떻게 하지??
-        handle = self.handler.handle
-        is_coroutine = asyncio.iscoroutinefunction(handle)
+        handle_event = self.handler.handle_event
 
         # try:
         # if not is_coroutine:
         #     response = await self.run_in_executor(handle)
         # else:
-        response = await handle()
+        response = await handle_event()
         # except:
         #     response = await self._handle_failure()
 
@@ -96,38 +87,3 @@ class EventBase:
             #     self.evoke_failure_logs()
             # self.evoke_success_logs()
         return response
-
-
-class FileModifiedEvent(EventBase):
-    event_type = EventStatus.FILE_MODIFIED
-    handler_class = rf.FileModifiedHandler
-
-
-class FileCreatedEvent(FileModifiedEvent):
-    event_type = EventStatus.FILE_CREATED
-    handler_class = rf.FileCreatedHandler
-
-
-class FileDeletedEvent(EventBase):
-    event_type = EventStatus.FILE_DELETED
-    handler_class = rf.FileDeletedHandler
-
-
-class CreateChannelEevent(EventBase):
-    event_type = EventStatus.CREATE_CHANNEL
-    handler_class = lf.ChannelCreateHandler
-
-
-class DeleteChannelEevent(EventBase):
-    event_type = EventStatus.FILE_DELETED
-    handler_class = lf.ChannelDeleteHandler
-
-
-
-
-HIVE_EVENTS = {
-    EventStatus.FILE_DELETED: FileDeletedEvent,
-    EventStatus.FILE_CREATED: FileCreatedEvent,
-    EventStatus.FILE_MODIFIED: FileModifiedEvent,
-
-}

@@ -41,7 +41,7 @@ class Watch:
 
         self._project = project
         self._paths = set()
-        self._channels = {"http://192.168.0.230:5111/", "http://192.168.0.230:5112/"}
+        self._channels = {"http://192.168.0.230:5111/"} # "http://192.168.0.230:5112/
         self._target = set()
         self._loop = loop
         self._lock = asyncio.Lock(loop=loop)
@@ -160,10 +160,12 @@ class EventEmitter(BaseThread):
 
     """
     def __init__(self,
+                 loop,
                  root_dir: str,
                  event_queue: EventQueue,
                  timeout: float = DEFAULT_QUEUE_TIMEOUT):
         BaseThread.__init__(self)
+        self.loop = loop
         self.root_dir = root_dir
         self._event_queue = event_queue
         self._timeout = timeout
@@ -204,22 +206,22 @@ class EventEmitter(BaseThread):
 class HiveEventEmitter(EventEmitter):
 
     def __init__(self,
+                 loop: 'asyncio.loop',
                  root_dir: str,
                  event_queue: EventQueue,
                  watches: t.Dict[str, Watch],
                  proj_depth: int,
                  ignore_pattern: 'regex_pattern',
-                 lock_factory: 'asyncio.loop',
                  task_factory: 'asyncio.loop.create_task',
                  hosts: t.Optional[str] = None,
                  timeout=DEFAULT_QUEUE_TIMEOUT):
-        super().__init__(root_dir, event_queue, timeout)
+        super().__init__(loop, root_dir, event_queue, timeout)
 
         self._lock = threading.Lock()
         self._proj_depth = proj_depth
         self._ignore_pattern = ignore_pattern
         self._watches = watches
-        self._lock_factory = lock_factory
+        self._lock_factory = loop
         self._task_factory = task_factory
         self._hosts = hosts
 
@@ -277,11 +279,11 @@ class HiveEventEmitter(EventEmitter):
         :return:
         """
         event_type = symbol.event_type
-
+        loop = self.loop
         if event_type not in HIVE_EVENTS:
             raise KeyError
 
-        return HIVE_EVENTS[event_type](watch, symbol)
+        return HIVE_EVENTS[event_type](watch, symbol, loop)
 
     def queue_events(self, timeout):
         """
@@ -301,6 +303,7 @@ class HiveEventEmitter(EventEmitter):
 
             try:
                 event = self._pull_event(symbol, watch)
+                print(event.event_type)
                 if not asyncio.iscoroutine(event) and \
                         isinstance(event, t.Callable):
                     event = event()

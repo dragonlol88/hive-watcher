@@ -1,37 +1,14 @@
 import os
 import re
+import http
 import socket
-import http.server
 import typing as t
 
-from .events import EventStatus
-
+from watcher import EventStatus
+from watcher.exceptions import FilePaserError
 # buffer 단에서
 # local event 와 remote event의 공통사항을 묶을 수 있는 interface 하나 정의하자
 # 이듦도 다시 짓자
-
-
-def pull_ext(path):
-    """
-    Function to pull the file extention
-    :param path:
-        file path
-        ex)
-            /user/defined/directory/file.ext
-    :return:
-        file extension
-        ex)
-            .txt, , .xml, .json etc..
-    """
-
-    file = path.split("/")[-1]
-    return file.split('.')
-
-try:
-    pull_ext = os.path.splitext
-
-except:
-    pull_ext = pull_ext
 
 
 class EventSymbol:
@@ -57,7 +34,6 @@ class EventSymbol:
         return hash(self.key)
 
 
-
 class LocalEventSymbol(EventSymbol):
 
     # file 확장자 정보 담기
@@ -66,8 +42,40 @@ class LocalEventSymbol(EventSymbol):
                  path: str,
                  event_type: 'enum'):
         super().__init__(proj, event_type)
+
         self.path = path
-        self.file_ext = pull_ext(self.path)
+        if not self.parse_path(self.path):
+            #message
+            raise FilePaserError
+
+    def parse_path(self, path):
+        """
+        Function to pull the file extention
+        :param path:
+            file path
+            ex)
+                /user/defined/directory/file.ext
+        :return:
+            file extension
+            ex)
+                .txt, , .xml, .json etc..
+        """
+
+        entities = path.split("/")
+        #Todo display log
+        try:
+            self.file_type = entities[-2]
+            if self.file_type not in ('synonym', 'userdict', 'stopword', 'index'):
+                return False
+
+            self.ext = os.path.splitext(path)[-1]
+            if self.ext not in ('.txt', '.json', '.xlsx'):
+                return False
+
+        except (IndexError, OSError):
+            return False
+
+        return True
 
     @property
     def is_modified(self):
@@ -133,7 +141,7 @@ class LocalBuffer:
                  ignore_pattern: 'regex pattern'):
 
         self._root_path = root_path
-        self._prject_depth = proj_depth
+        self._project_depth = proj_depth
         self.files: t.Dict[str, float] = {}
         self.ignore_pattern = ignore_pattern
 
@@ -143,7 +151,7 @@ class LocalBuffer:
 
     @property
     def proj_depth(self):
-        return self._prject_depth
+        return self._project_depth
 
     def _knock_dir(self,
                    path: str,
@@ -204,9 +212,9 @@ class LocalBuffer:
         depth = 0
         try:
             self._knock(self._root_path, events, new_files, depth)
-        except OSError:
+        except OSError as e:
             #Todo log 찍어야함
-            pass
+            raise e
 
         deleted_files = self.files.keys() - new_files.keys()
 
