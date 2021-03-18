@@ -1,5 +1,5 @@
-import urllib3
 import typing as t
+
 
 class HandlerBase:
 
@@ -10,7 +10,6 @@ class HandlerBase:
 
         self.event = event
         self.event_type = event.event_type
-
 
     def event_action(self, response):
         """
