@@ -47,6 +47,7 @@ class Session:
             headers.update({'keep-alive':keep_alive})
 
         self.headers = headers
+        self._create_session()
 
     async def request(self,
                       method,
@@ -60,7 +61,6 @@ class Session:
         if headers:
             self.headers.update(headers)
 
-        await self._create_session()
 
         if data:
             options.update({'data': data})
@@ -79,7 +79,7 @@ class Session:
 
         return response
 
-    async def _create_session(self) -> None:
+    def _create_session(self) -> None:
 
         if not self.loop:
             self.loop = get_running_loop()
