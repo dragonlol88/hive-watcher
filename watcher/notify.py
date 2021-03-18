@@ -17,10 +17,10 @@ from watcher import BaseThread, EventQueue
 if hasattr(selectors, 'PollSelector'):
     _ServerSelector = selectors.PollSelector
 else:
-    _ServerSelector = selectors.SelectSelector
+    _ServerSelector = selectors.SelectSelector                                                            # type: ignore
 
 _TSSLContextArg = t.Optional[
-    t.Union["ssl.SSLContext", t.Tuple[str, t.Optional[str]], "te.Literal['adhoc']"]
+    t.Union["ssl.SSLContext", t.Tuple[str, t.Optional[str]], "te.Literal['adhoc']"]                       # type: ignore
 ]
 
 EVENT_PERIOD = 0.5
@@ -28,16 +28,16 @@ EVENT_PERIOD = 0.5
 
 class Notify:
 
-    __notifies__ = set()
+    __notifies__: t.Set[t.Union['RemoteNotify', 'LocalNotify']] = set()
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: t.Dict[str, t.Any]):
 
         self.params = kwargs
         self.notifies = []
 
         for notify in self.__notifies__:
             noti_kwargs = {}
-            notify_name = notify.__name__.lower()
+            notify_name = notify.__name__.lower()                                                         # type: ignore
             for arg, value in self.params.items():
                 seperated_arg = arg.split("_")
 
@@ -46,10 +46,10 @@ class Notify:
                 arg_name = '_'.join(seperated_arg[1:])
                 if notify_name == cls_name:
                     noti_kwargs[arg_name] = value
-            self.notifies.append(notify(**noti_kwargs))
+            self.notifies.append(notify(**noti_kwargs))                                                   # type: ignore
 
     @classmethod
-    def register(cls, notify):
+    def register(cls, notify: t.Union[t.Any, 'LocalNotify', 'RemoteNotify']) -> None:
         """
         register
         :param notify:
@@ -57,7 +57,7 @@ class Notify:
         """
         cls.__notifies__.add(notify)
 
-    def read_events(self):
+    def read_events(self) -> t.List[EventSymbol]:
 
         symbols = []
         for notify in self.notifies:
@@ -77,7 +77,7 @@ class LocalNotify(BaseThread):
     def __init__(self,
                  root_dir: str,
                  proj_depth: int,
-                 ignore_pattern: 'regex_pattern'):
+                 ignore_pattern: str):
         super().__init__()
 
         self._lock = threading.Lock()
@@ -85,7 +85,7 @@ class LocalNotify(BaseThread):
         self._buffer = LocalBuffer(root_dir, proj_depth, ignore_pattern)
         self.start()
 
-    def read_event(self):
+    def read_event(self) -> EventSymbol:
         """
         :return:
         """
@@ -123,7 +123,6 @@ class RemoteNotify(BaseThread, WSGIServer):
     def __init__(self,
                  host: str,
                  port: int,
-                 app: t.Optional["WSGIApplication"] = None,
                  handler: t.Optional[t.Type["RemoteBuffer"]] = RemoteBuffer,
                  passthrough_errors: bool = False,
                  ssl_context: t.Optional[_TSSLContextArg] = None,
@@ -132,10 +131,7 @@ class RemoteNotify(BaseThread, WSGIServer):
 
         BaseThread.__init__(self)
 
-        if app is None:
-            # response....
-            app = Response("hello response ok")
-
+        app = Response("hello response ok")
         WSGIServer.__init__(self,
                             host,
                             port,
@@ -165,7 +161,7 @@ class RemoteNotify(BaseThread, WSGIServer):
         finally:
             self.server_close()
 
-    def read_event(self):
+    def read_event(self) -> EventSymbol:
         """
 
         :return:
@@ -184,7 +180,7 @@ class RemoteNotify(BaseThread, WSGIServer):
         """
         self._event_queue.put(event)
 
-    def finish_request(self, request, client_address):
+    def finish_request(self, request: 'Socket', client_address):                                          # type: ignore
         """Finish one request by instantiating RequestHandlerClass."""
 
         self._buffer = self.RequestHandlerClass(request, client_address, self)

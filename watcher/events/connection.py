@@ -4,11 +4,11 @@ from .base import EventBase
 from watcher import EventStatus
 
 
-class CreateChannelEevent(EventBase):
+class CreateChannelEvent(EventBase):
     event_type = EventStatus.CREATE_CHANNEL
     handler_class = h.ChannelCreateHandler
 
 
-class DeleteChannelEevent(EventBase):
+class DeleteChannelEvent(EventBase):
     event_type = EventStatus.FILE_DELETED
     handler_class = h.ChannelDeleteHandler

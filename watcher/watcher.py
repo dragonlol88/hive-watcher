@@ -9,11 +9,13 @@ from watcher import EventQueue
 
 from .notify import Notify
 from .events import HIVE_EVENTS
-from .server import AcceptorServer
+from .buffer import EventSymbol
+from .type import Loop, Task
 
 
 DEFAULT_QUEUE_TIMEOUT = 1
 partial = lambda : functools.partial
+
 
 class Watch:
 
@@ -37,35 +39,27 @@ class Watch:
         Locking object
     """
 
-    def __init__(self, project: str, loop):
+    def __init__(self, project: str, loop: Loop):
 
         self._project = project
-        self._paths = set()
-        self._channels = set() #{"http://192.168.0.230:5111/" "http://192.168.0.230:5112/
-        self._target = set()
+        self._paths: t.Set[str] = set()
+        self._channels: t.Set[str] = set() #{"http://192.168.0.230:5111/" "http://192.168.0.230:5112/
         self._loop = loop
         self._lock = asyncio.Lock(loop=loop)
 
     @property
-    def paths(self):
+    def paths(self) -> t.Set[str]:
         """
         The path that this watch monitors.
         """
         return self._paths
 
     @property
-    def channels(self):
+    def channels(self) -> t.Set[str]:
         """
         The channels that this watch monitors.
         """
         return self._channels
-
-    @property
-    def targets(self):
-        """
-        The target paths where events are raised.
-        """
-        return self._target
 
     @property
     def lock(self):
@@ -75,14 +69,14 @@ class Watch:
         return self._lock
 
     @property
-    def key(self):
+    def key(self) -> str:
         """
 
         :return:
         """
         return self._project
 
-    def discard_path(self, path):
+    def discard_path(self, path: str) -> None:
         """
 
         :param path:
@@ -90,7 +84,7 @@ class Watch:
         """
         self._paths.discard(path)
 
-    def add_path(self, path):
+    def add_path(self, path: str) -> None:
         """
 
         :param path:
@@ -98,7 +92,7 @@ class Watch:
         """
         self._paths.add(path)
 
-    def discard_channel(self, channel):
+    def discard_channel(self, channel: str) -> None:
         """
 
         :param channel:
@@ -106,7 +100,7 @@ class Watch:
         """
         self._channels.discard(channel)
 
-    def add_channel(self, channel):
+    def add_channel(self, channel: str) -> None:
         """
 
         :param channel:
@@ -114,15 +108,7 @@ class Watch:
         """
         self._channels.add(channel)
 
-    def add_target(self, path):
-        """
-
-        :param path:
-        :return:
-        """
-        self._target.add(path)
-
-    def __eq__(self, watch):
+    def __eq__(self, watch: "Watch") -> bool: # type: ignore
         """
 
         :param watch:
@@ -130,7 +116,7 @@ class Watch:
         """
         return self.key == watch.key
 
-    def __ne__(self, watch):
+    def __ne__(self, watch: "Watch") -> bool:                                                             # type: ignore
         """
 
         :param watch:
@@ -138,14 +124,14 @@ class Watch:
         """
         return self.key != watch.key
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         """
 
         :return:
         """
         return hash(self.key)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """
 
         :return:
@@ -162,7 +148,7 @@ class EventEmitter(BaseThread):
 
     """
     def __init__(self,
-                 loop,
+                 loop: Loop,
                  event_queue: EventQueue,
                  timeout: float = DEFAULT_QUEUE_TIMEOUT):
         BaseThread.__init__(self)
@@ -177,7 +163,7 @@ class EventEmitter(BaseThread):
         """
         return self._timeout
 
-    def queue_event(self, event):
+    def queue_event(self, event: 'Event'):                                                                # type: ignore
         """
         Queues a single event.
 
@@ -206,10 +192,10 @@ class EventEmitter(BaseThread):
 class HiveEventEmitter(EventEmitter):
 
     def __init__(self,
-                 loop: 'asyncio.loop',
+                 loop: Loop,
                  event_queue: EventQueue,
                  watches: t.Dict[str, Watch],
-                 task_factory: 'asyncio.loop.create_task',
+                 task_factory: t.Callable[[t.Coroutine], Task],
                  timeout=DEFAULT_QUEUE_TIMEOUT,
                  **kwargs):
         super().__init__(loop, event_queue, timeout)
@@ -235,7 +221,7 @@ class HiveEventEmitter(EventEmitter):
         :return:
         """
 
-    def _produce_watch(self, symbol):
+    def _produce_watch(self, symbol: EventSymbol) -> Watch:
         """
 
         :param event:
@@ -251,7 +237,7 @@ class HiveEventEmitter(EventEmitter):
         self.watches[proj] = watch
         return watch
 
-    def _pull_event(self, symbol, watch):
+    def _pull_event(self, symbol: EventSymbol, watch: Watch) -> 'Event':                                  # type: ignore
         """
 
         :param event:
@@ -262,9 +248,9 @@ class HiveEventEmitter(EventEmitter):
         if event_type not in HIVE_EVENTS:
             raise KeyError
 
-        return HIVE_EVENTS[event_type](watch, symbol, loop)
+        return HIVE_EVENTS[event_type](watch, symbol, loop)                                               # type: ignore
 
-    def queue_events(self, timeout):
+    def queue_events(self, timeout: float) -> None:
         """
 
         :param timeout:
@@ -286,7 +272,7 @@ class HiveEventEmitter(EventEmitter):
                     event = self._pull_event(symbol, watch)
                     print(event.event_type)
                     if not asyncio.iscoroutine(event) and \
-                            isinstance(event, t.Callable):
+                            isinstance(event, t.Callable):                                                # type: ignore
                         event = event()
 
                     task = self._task_factory(event)
@@ -304,53 +290,51 @@ class HiveEventEmitter(EventEmitter):
 
         self.notify = Notify(**self.kwargs)
 
-
-class HiveWatcher:
-
-    def __init__(self,
-                 target_dir,
-                 server_ip='localhost',
-                 server_port=8080,
-                 queue_timeout=None,
-                 acceptor_class=AcceptorServer):
-
-
-        lock = threading.RLock()
-        event_queue = EventQueue()
-
-        self.target_dir = target_dir
-        self.acceptor_class = acceptor_class
-        self._lock = lock
-        self._event_queue = event_queue
-        self._watches = {}  # key: project, watch
-        self._timeout = queue_timeout or DEFAULT_QUEUE_TIMEOUT
-
-        self.init_watch()
-
-    def run(self):
-        pass
-
-    def add_watch(self, event_queue, timeout):
-        event = event_queue.get(block=True, timeout=timeout)
-        with self._lock:
-            pass
-
-    def init_watch(self):
-        #dir 평가 어떻게??
-        walk = os.walk(self.target_dir)
-        for top, subs, files in walk:
-            if top == self.target_dir:
-                self._watches = {sub: Watch(sub) for sub in subs}
-                continue
-            proj = os.path.basename(top)
-            watch = self._watches[proj]
-            list(map(lambda file: watch.add_path(file), files))
-
-    @property
-    def event_queue(self):
-        return self._event_queue
-
-    @property
-    def timeout(self):
-        return self._timeout
-
+#
+# class HiveWatcher:
+#
+#     def __init__(self,
+#                  target_dir,
+#                  server_ip='localhost',
+#                  server_port=8080,
+#                  queue_timeout=None):
+#
+#
+#         lock = threading.RLock()
+#         event_queue = EventQueue()
+#
+#         self.target_dir = target_dir
+#         self._lock = lock
+#         self._event_queue = event_queue
+#         self._watches = {}  # key: project, watch
+#         self._timeout = queue_timeout or DEFAULT_QUEUE_TIMEOUT
+#
+#         self.init_watch()
+#
+#     def run(self):
+#         pass
+#
+#     def add_watch(self, event_queue, timeout):
+#         event = event_queue.get(block=True, timeout=timeout)
+#         with self._lock:
+#             pass
+#
+#     def init_watch(self):
+#         #dir 평가 어떻게??
+#         walk = os.walk(self.target_dir)
+#         for top, subs, files in walk:
+#             if top == self.target_dir:
+#                 self._watches = {sub: Watch(sub) for sub in subs}
+#                 continue
+#             proj = os.path.basename(top)
+#             watch = self._watches[proj]
+#             list(map(lambda file: watch.add_path(file), files))
+#
+#     @property
+#     def event_queue(self):
+#         return self._event_queue
+#
+#     @property
+#     def timeout(self):
+#         return self._timeout
+#

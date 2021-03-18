@@ -38,7 +38,7 @@ class BaseThread(threading.Thread):
     def stopped_event(self):
         return self._stopped_event
 
-    def should_keep_running(self):
+    def should_keep_running(self) -> bool:
         """Determines whether the thread should continue running."""
         return not self._stopped_event.is_set()
 
@@ -49,12 +49,12 @@ class BaseThread(threading.Thread):
         """
         pass
 
-    def stop(self):
+    def stop(self) -> None:
         """Signals the thread to stop."""
         self._stopped_event.set()
         self.on_thread_stop()
 
-    def on_thread_start(self):
+    def on_thread_start(self) -> None:
         """Override this method instead of :meth:`start()`. :meth:`start()`
         calls this method.
         This method is called right before this thread is started and this
@@ -62,6 +62,6 @@ class BaseThread(threading.Thread):
         """
         pass
 
-    def start(self):
+    def start(self) -> None:
         self.on_thread_start()
         threading.Thread.start(self)

@@ -1,21 +1,23 @@
 from watcher import EventStatus
 
+from .base import EventBase
 from .file import (FileModifiedEvent,
                    FileCreatedEvent,
                    FileDeletedEvent)
 
-from .connection import CreateChannelEevent, DeleteChannelEevent
+from .connection import CreateChannelEvent, DeleteChannelEvent
 
-__all__ = (FileModifiedEvent,
-           FileCreatedEvent,
-           FileDeletedEvent,
-           CreateChannelEevent,
-           DeleteChannelEevent)
+__all__ = ("EventBase",
+           "FileModifiedEvent",
+           "FileCreatedEvent",
+           "FileDeletedEvent",
+           "CreateChannelEvent",
+           "DeleteChannelEvent")
 
 HIVE_EVENTS = {
     EventStatus.FILE_DELETED: FileDeletedEvent,
     EventStatus.FILE_CREATED: FileCreatedEvent,
     EventStatus.FILE_MODIFIED: FileModifiedEvent,
-    EventStatus.CREATE_CHANNEL: CreateChannelEevent,
-    EventStatus.DELETE_CHANNEL: DeleteChannelEevent
+    EventStatus.CREATE_CHANNEL: CreateChannelEvent,
+    EventStatus.DELETE_CHANNEL: DeleteChannelEvent
 }

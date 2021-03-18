@@ -7,9 +7,10 @@ from . import HandlerBase
 from . import Session
 
 from watcher import EventStatus
+from watcher.type import Loop
 
 _open = functools.partial(
-            aiofiles.threadpool._open,
+            aiofiles.threadpool._open,                                                                    # type: ignore
             mode='rb'
         )
 
@@ -22,16 +23,18 @@ class AsyncFileIO(aiofiles.base.AiofilesContextManager):
     def __init__(self, coro):
         super(AsyncFileIO, self).__init__(coro)
 
+    @t.no_type_check
     async def open(self):
         self._obj = await self._coro
         return self._obj
 
+    @t.no_type_check
     async def close(self):
         await self._obj.close()
         self._obj = None
 
 
-def get_file_io(file_name):
+def get_file_io(file_name: str) -> AsyncFileIO:
     """
 
     :param file_name:
@@ -69,21 +72,21 @@ class FileHandler(HandlerBase):
     method = 'POST'
 
     def __init__(self,
-                 event,
-                 headers=None,
+                 event: 'Event',                                                                          # type: ignore
+                 headers: t.Dict[str, str] = {},
                  **kwargs):
 
         super().__init__(event)
 
         self.watch = event.watch
-        self.headers = headers or {}
+        self.headers = headers
         self._file = self.event.target
 
         file_name = self.headers.get('file-name', None)
         if not file_name:
             file_name = os.path.basename(self._file)
             # remote client 파일 저장 장소는 client에서 설정 할 수 있도록하기
-            self.headers['file-name'] = file_name
+            self.headers['file-name'] = file_name                                                          #type: ignore
 
         event_type_value = self.event_type.value
         if not isinstance(event_type_value, str):
@@ -100,7 +103,7 @@ class FileHandler(HandlerBase):
         self.session = Session(loop=self.loop, headers=self.headers, **kwargs)
 
     @property
-    def loop(self):
+    def loop(self) -> Loop:
         """
 
         :return:
@@ -108,7 +111,7 @@ class FileHandler(HandlerBase):
         return self.event.loop
 
     @property
-    async def channels(self):
+    async def channels(self) -> t.AsyncGenerator:
         """
 
         :return:
@@ -117,7 +120,7 @@ class FileHandler(HandlerBase):
             yield channel
 
     @property
-    async def paths(self):
+    async def paths(self) -> t.AsyncGenerator:
         """
 
         :return:
@@ -126,7 +129,7 @@ class FileHandler(HandlerBase):
             yield path
 
     @property
-    def data(self):
+    def data(self) -> t.Any:
         """
 
         :return:
@@ -135,7 +138,7 @@ class FileHandler(HandlerBase):
         return stream(self._file)
 
     @property
-    def body(self):
+    def body(self) -> bytes:
         """
 
         :return:
@@ -176,7 +179,7 @@ class FileCreatedHandler(FileHandler):
 
     method = 'POST'
 
-    def event_action(self, response):
+    def event_action(self, response: t.Any) -> t.Any:
         self.watch.add_path(self._file)
         return response
 
@@ -186,7 +189,7 @@ class FileDeletedHandler(FileHandler):
     method = "POST"
 
     @property
-    def data(self):
+    def data(self) -> bytes:
         return b''
 
     def event_action(self, response):

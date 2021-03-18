@@ -9,7 +9,7 @@ from watcher.exceptions import FilePaserError
 
 from werkzeug.wrappers import Request as WSGIRequest
 from werkzeug.serving import WSGIRequestHandler
-
+from werkzeug.datastructures import EnvironHeaders
 # buffer 단에서
 # local event 와 remote event의 공통사항을 묶을 수 있는 interface 하나 정의하자
 # 이듦도 다시 짓자
@@ -22,13 +22,13 @@ class EventSymbol:
 
     def __init__(self,
                  proj: str,
-                 event_type: t.Optional[t.Union['enum', int]] = None):
+                 event_type: t.Optional[t.Union['enum', int]] = None):                                    # type: ignore
 
         self.proj = proj
         self._event_type = event_type
 
     @property
-    def event_type(self) -> int:
+    def event_type(self) -> t.Union['enum', int]:                                                         # type: ignore
         return self._event_type
 
     @property
@@ -51,7 +51,7 @@ class LocalEventSymbol(EventSymbol):
     def __init__(self,
                  proj: str,
                  path: str,
-                 event_type: 'enum'):
+                 event_type: t.Union['enum', int]):                                                       # type: ignore
         super().__init__(proj, event_type)
 
         self.path = path
@@ -119,6 +119,7 @@ class RemoteEventSymbol(EventSymbol):
         self.environ = environ
         self.request = WSGIRequest(environ)
 
+
     @property
     def event_type(self) -> int:
         """
@@ -126,7 +127,7 @@ class RemoteEventSymbol(EventSymbol):
         :return:
             event type
         """
-        return int(self.headers.get('Event-Type'))
+        return int(self.headers.get('Event-Type'))                                                        # type: ignore
 
     @property
     def client_host(self) -> str:
@@ -139,10 +140,10 @@ class RemoteEventSymbol(EventSymbol):
         """
         scheme = self.environ.get("wsgi.url_scheme")
         client_address = self.client_address, self.client_port
-        return scheme + "://" + ":".join(client_address)
+        return scheme + "://" + ":".join(client_address)                                                  # type: ignore
 
     @property
-    def headers(self) -> t.Dict[str, t.Any]:
+    def headers(self) -> 'EnvironHeaders':
         """
         Property of request header
         :return:
@@ -181,31 +182,33 @@ class RemoteEventSymbol(EventSymbol):
 
 
 class LocalBuffer:
-
+    """
+    ignore pattern is regex_pattern
+    """
     def __init__(self,
                  root_path: str,
                  proj_depth: int,
-                 ignore_pattern: 'regex pattern'):
+                 ignore_pattern: str):
 
         self._root_path = root_path
         self._project_depth = proj_depth
-        self.files: t.Dict[str, float] = {}
+        self.files: t.Dict[str, t.Tuple[str,float]] = {}
         self.ignore_pattern = ignore_pattern
 
     @property
-    def root_path(self):
+    def root_path(self) -> str:
         return self._root_path
 
     @property
-    def proj_depth(self):
+    def proj_depth(self) -> int:
         return self._project_depth
 
     def _knock_dir(self,
                    path: str,
-                   events: t.Set[LocalEventSymbol],
+                   symbols: t.Set[LocalEventSymbol],
                    new_files: t.Dict[str, t.Tuple[str, float]],
                    depth: int,
-                   proj: t.Optional[str]=None):
+                   proj: str = 'base'):
 
         # 코드 다시 고려해보기
         if depth == self.proj_depth:
@@ -214,48 +217,48 @@ class LocalBuffer:
 
         for entry in os.scandir(path):
             if entry.is_dir():
-                self._knock_dir(entry.path, events, new_files, depth, proj)
+                self._knock_dir(entry.path, symbols, new_files, depth, proj)
             else:
                 filename = os.path.basename(entry.path)
                 if re.match(self.ignore_pattern, filename):
                     continue
-                self._knock_file(entry.path, events, new_files, entry.stat(), proj)
+                self._knock_file(entry.path, symbols, new_files, entry.stat(), proj)
         depth -= 1
 
     def _knock_file(self,
                     path: str,
-                    events: t.Set[LocalEventSymbol],
+                    symbols: t.Set[LocalEventSymbol],
                     new_files: t.Dict[str, t.Tuple[str, float]],
-                    stat: os.stat,
-                    proj: str):
+                    stat: os.stat_result,
+                    proj: str = 'base'): #default 이름 정하
 
         new_mtime = stat.st_mtime
         new_files[path] = (proj, new_mtime)
         old_proj, old_mtime = self.files.get(path, (None, None))
 
         if not old_mtime:
-            events.add(LocalEventSymbol(proj,
-                                        path,
-                                        EventStatus.FILE_CREATED))
+            symbols.add(LocalEventSymbol(proj,
+                                         path,
+                                         EventStatus.FILE_CREATED))
         elif new_mtime != old_mtime:
-            events.add(LocalEventSymbol(proj,
-                                        path,
-                                        EventStatus.FILE_MODIFIED))
+            symbols.add(LocalEventSymbol(proj,
+                                         path,
+                                         EventStatus.FILE_MODIFIED))
 
     def _knock(self,
                path: str,
-               events: t.Set[LocalEventSymbol],
+               symbols: t.Set[LocalEventSymbol],
                new_files: t.Dict[str, t.Tuple[str, float]],
                depth: int):
 
         if os.path.isdir(path):
-            self._knock_dir(path, events, new_files, depth)
+            self._knock_dir(path, symbols, new_files, depth)
         else:
-            self._knock_file(path, events, new_files, os.stat(path))
+            self._knock_file(path, symbols, new_files, os.stat(path))
 
     def read_events(self):
         events: t.Set[LocalEventSymbol] = set()
-        new_files: t.Dict[str, t.Dict[str, float]] = {}
+        new_files: t.Dict[str, t.Tuple[str, float]] = {}
         depth = 0
         try:
             self._knock(self._root_path, events, new_files, depth)
@@ -297,12 +300,15 @@ class LocalBuffer:
 
 class RemoteBuffer(WSGIRequestHandler):
 
-    events = set()
+    events: t.Set['RemoteEventSymbol'] = set()
     # header()
     # get_data()
     # router 어떻게 시킬지
 
-    def __init__(self, request, client_address, server):
+    def __init__(self,
+                 request: 'Socket',                                                                       # type: ignore
+                 client_address: t.Tuple[str, int],
+                 server: 'RemoteNotify'):                                                                 # type: ignore
         super().__init__(request, client_address, server)
 
     @property
@@ -314,15 +320,15 @@ class RemoteBuffer(WSGIRequestHandler):
         """
         return self.headers.get(PROJECT_KEY)
 
-    def read_events(self):
+    def read_events(self) -> t.Set[RemoteEventSymbol]:
         """
         :return:
         """
-        cur_event = set()
+        cur_events = set()
         for _ in range(len(self.events)):
-            cur_event.add(self.events.pop())
+            cur_events.add(self.events.pop())
 
-        return cur_event
+        return cur_events
 
     def run_event(self):
         """

@@ -2,6 +2,7 @@ import aiohttp
 import urllib3
 import typing as t
 
+from watcher.type import Loop
 from watcher.utils import get_running_loop
 
 
@@ -10,15 +11,15 @@ class Session:
     session_class = aiohttp.ClientSession
 
     def __init__(self,
-                *,
-                loop,
-                headers: t.Optional[t.Dict[str, str]] = {},
-                http_auth: t.Optional[t.Tuple[str, str]]=None,
-                timeout: t.Optional[float]=300,
-                read_timeout: t.Optional[float]=300,
-                keepalive_timeout: t.Optional[float]=15,
-                total_connections: t.Optional[float]=30,
-                **kwargs
+                 *,
+                 loop: Loop,
+                 headers: t.Optional[t.Dict[str, str]] = {},
+                 http_auth: t.Optional[t.Tuple[str, str]] = None,
+                 timeout: t.Optional[float] = 300,
+                 read_timeout: t.Optional[float] = 300,
+                 keepalive_timeout: t.Optional[float] = 15,
+                 total_connections: t.Optional[float] = 30,
+                 **kwargs
                  ):
 
         if not headers:
@@ -37,12 +38,12 @@ class Session:
 
         if http_auth is not None:
             if isinstance(http_auth, (tuple, list)):
-                http_auth = ":".join(http_auth)
+                http_auth = ":".join(http_auth)                                                           # type: ignore
             headers.update(urllib3.make_headers(basic_auth=http_auth))
 
         if self.keepalive_timeout:
             keep_alive = 'timeout=%d, max=%d' % \
-                         (self.keepalive_timeout, self.total_connections)
+                         (self.keepalive_timeout, self.total_connections)                                 # type: ignore
 
             headers.update({'keep-alive':keep_alive})
 
@@ -50,12 +51,12 @@ class Session:
         self._create_session()
 
     async def request(self,
-                      method,
-                      url,
+                      method: str,
+                      url: str,
                       *,
-                      headers=None,
-                      data=None,
-                      body=None):
+                      headers: t.Dict[str, str] = None,
+                      data: t.Optional[t.Union[bytes, t.AsyncGenerator]] = None,
+                      body: t.Optional[t.Union[t.Any, bytes]] = None) -> t.Any:
 
         options = {}
         if headers:
@@ -68,11 +69,14 @@ class Session:
             options.update({'body': body})
 
         method = method.lower()
-        if hasattr(self.session, method):
-            method = getattr(self.session, method)
+
+        if not hasattr(self.session, method):
+            raise AttributeError
+
+        command = getattr(self.session, method)
 
         try:
-            async with method(url, **options) as resp:
+            async with command(url, **options) as resp:
                 response = await resp.text()
         except Exception as e:
             raise e
