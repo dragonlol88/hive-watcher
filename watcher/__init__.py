@@ -12,15 +12,13 @@ class EventStatus(IntEnum):
     FILE_MODIFIED  = 3
     CREATE_CHANNEL = 4
     DELETE_CHANNEL = 5
-event_types = {
-        '1': 'file_deleted',
-        '2': 'file_created',
-        '3': 'file_modified',
-    }
+
+
 class EventQueue(queue.Queue):
 
     def __init__(self, maxsize=QUEUE_MAX_SIZE):
         super().__init__(maxsize)
+
 
 class BaseThread(threading.Thread):
     """ Convenience class for creating stoppable threads. """
