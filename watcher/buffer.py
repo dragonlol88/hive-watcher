@@ -6,28 +6,39 @@ import typing as t
 
 from watcher import EventStatus
 from watcher.exceptions import FilePaserError
+
+from werkzeug.wrappers import Request as WSGIRequest
+from werkzeug.serving import WSGIRequestHandler
+
 # buffer 단에서
 # local event 와 remote event의 공통사항을 묶을 수 있는 interface 하나 정의하자
 # 이듦도 다시 짓자
+
+EVENT_TYPE_KEY = 'Event-Type'
+PROJECT_KEY    = 'Project-Name'
 
 
 class EventSymbol:
 
     def __init__(self,
                  proj: str,
-                 event_type: 'enum'):
+                 event_type: t.Optional[t.Union['enum', int]] = None):
 
         self.proj = proj
-        self.event_type = event_type
+        self._event_type = event_type
+
+    @property
+    def event_type(self) -> int:
+        return self._event_type
 
     @property
     def key(self):
         raise NotImplementedError
 
-    def __eq__(self, event):
+    def __eq__(self, event) -> bool:
         return self.key == event.key
 
-    def __ne__(self, event):
+    def __ne__(self, event) -> bool:
         return self.key == event.key
 
     def __hash__(self):
@@ -45,10 +56,10 @@ class LocalEventSymbol(EventSymbol):
 
         self.path = path
         if not self.parse_path(self.path):
-            #message
+            # message
             raise FilePaserError
 
-    def parse_path(self, path):
+    def parse_path(self, path: str) -> bool:
         """
         Function to pull the file extention
         :param path:
@@ -77,25 +88,12 @@ class LocalEventSymbol(EventSymbol):
 
         return True
 
-    @property
-    def is_modified(self):
-        return self.event_type - EventStatus.FILE_MODIFIED == 0
 
     @property
-    def is_deleted(self):
-        return self.event_type - EventStatus.FILE_DELETED == 0
-
-    @property
-    def is_created(self):
-        return self.event_type - EventStatus.FILE_CREATED == 0
-
-    @property
-    def key(self):
+    def key(self) -> t.Tuple[str, str]:
         #key에 status도 추가해야 하지 않을까????
 
         return self.proj, self.path
-
-
 
     def __eq__(self, event):
         return self.key == event.key
@@ -109,28 +107,77 @@ class LocalEventSymbol(EventSymbol):
 
 class RemoteEventSymbol(EventSymbol):
 
+    # 나중에 서버 바꾸자..
+
     def __init__(self,
                  proj: str,
-                 hosts: str,
-                 event_type: 'enum'):
+                 environ: t.Dict[str, t.Any]
+                 ):
 
-        self.proj = proj
-        self.hosts = hosts
-        self.event_type = event_type
+        super().__init__(proj)
 
-    def is_close(self):
+        self.environ = environ
+        self.request = WSGIRequest(environ)
+
+    @property
+    def event_type(self) -> int:
+        """
+        Propery of event type
+        :return:
+            event type
+        """
+        return int(self.headers.get('Event-Type'))
+
+    @property
+    def client_host(self) -> str:
+        """
+        Client host property
+        :return:
+            Make host into a sagging shape
+            example)
+                0.0.0.0:8080
+        """
+        scheme = self.environ.get("wsgi.url_scheme")
+        client_address = self.client_address, self.client_port
+        return scheme + "://" + ":".join(client_address)
+
+    @property
+    def headers(self) -> t.Dict[str, t.Any]:
+        """
+        Property of request header
+        :return:
+        """
+
+        return self.request.headers
+
+    @property
+    def client_address(self) -> str:
         """
 
         :return:
         """
-        return self.event_type - EventStatus.DELETE_CHANNEL == 0
+        addr = self.environ.get("REMOTE_ADDR")
+        if not isinstance(addr, str):
+            addr = str(addr)
+        return addr
 
-    def is_connect(self):
+    @property
+    def client_port(self) -> str:
         """
 
         :return:
         """
-        return self.event_type - EventStatus.CREATE_CHANNEL == 0
+        port = self.environ.get("REMOTE_PORT")
+        if not isinstance(port, str):
+            port = str(port)
+
+        return port
+
+    @property
+    def key(self) -> t.Tuple[str, str]:
+        # key에 status도 추가해야 하지 않을까????
+
+        return self.proj, self.client_address
 
 
 class LocalBuffer:
@@ -229,22 +276,28 @@ class LocalBuffer:
         return events
 
 
-
 #client connection # POST
 #{
 #    "project": "",
+#    "event_type":"",
 #    "level": ""
 #}
 
 #client close # DELETE
 #{
 #    "prject": "",
+#    "event_type":"",
 #    "level": ""
 #}
 
-class RemoteBuffer(http.server.BaseHTTPRequestHandler):
+# rfile 읽어오는 stream
+# route 어떻게 시킬까? url,
+#
 
-    event = set()
+
+class RemoteBuffer(WSGIRequestHandler):
+
+    events = set()
     # header()
     # get_data()
     # router 어떻게 시킬지
@@ -252,20 +305,54 @@ class RemoteBuffer(http.server.BaseHTTPRequestHandler):
     def __init__(self, request, client_address, server):
         super().__init__(request, client_address, server)
 
+    @property
+    def project_name(self) -> str:
+        """
+        Property of project name
+        :return:
+            Project name
+        """
+        return self.headers.get(PROJECT_KEY)
+
     def read_events(self):
         """
-
         :return:
         """
-        return self.events
+        cur_event = set()
+        for _ in range(len(self.events)):
+            cur_event.add(self.events.pop())
+
+        return cur_event
 
     def run_event(self):
         """
 
         :return:
         """
+        super().run_wsgi()
+        self.events.add(RemoteEventSymbol(self.project_name, self.environ))
 
-        pass
+    def parse_request(self) -> bool:
+        base_output = super().parse_request()
+
+        event_type = self.headers.get(EVENT_TYPE_KEY, None)
+        project_name = self.headers.get(PROJECT_KEY, None)
+
+        if not event_type or not project_name:
+            if not event_type and project_name:
+                message = '%s key' % EVENT_TYPE_KEY
+            elif event_type and not project_name:
+                message = '%s key' % PROJECT_KEY
+            else:
+                message = '%s, %s keys' % (PROJECT_KEY, EVENT_TYPE_KEY)
+
+            self.send_error(
+                http.HTTPStatus.BAD_REQUEST,
+                "Bad request header. "
+                "Header must contain (%s) " % message)
+            return False
+
+        return base_output
 
     def handle_one_request(self) -> None:
         try:
@@ -288,6 +375,7 @@ class RemoteBuffer(http.server.BaseHTTPRequestHandler):
         pass
 
 
+class DummyBuffer:
 
-
-
+    def read_events(self):
+        return set()
