@@ -1,6 +1,10 @@
 import typing as t
 import concurrent.futures
 
+from watcher.buffer import RemoteEventSymbol
+from watcher.buffer import LocalEventSymbol
+
+
 class EventBase:
 
     default_max_worker = 4
@@ -14,22 +18,23 @@ class EventBase:
                  **kwargs):
 
         self.loop = loop
-        self._watch = watch
-        self._executor = executor
-        self._lock = self._watch.lock
+        self.symbol = symbol
+        self.watch = watch
 
-        self._target = None # target file path
-        if hasattr(symbol, 'path'):
+        self._lock = self.watch.lock
+        self._target = None  # target file path
+        self._executor = executor
+
+        if isinstance(symbol, LocalEventSymbol):
             self._target = symbol.path
+
+        elif isinstance(symbol, RemoteEventSymbol):
+            self._target = symbol.client_host
 
         if handler_class:
             self.handler_class = handler_class
 
         self.handler = self.handler_class(self, **kwargs)
-
-    @property
-    def watch(self):
-        return self._watch
 
     @property
     def target(self):
@@ -64,13 +69,13 @@ class EventBase:
         # 1. parameter 준비
         # 2. is coroutine 인지 아닌지
         # 3. 성공 or 실패 check 어떻게 하지??
-        handle_event = self.handler.handle_event
+        handle = self.handler.handle_event
 
         # try:
         # if not is_coroutine:
         #     response = await self.run_in_executor(handle)
         # else:
-        response = await handle_event()
+        response = await handle()
         # except:
         #     response = await self._handle_failure()
 
