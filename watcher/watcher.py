@@ -7,10 +7,10 @@ import typing as t
 from watcher import BaseThread
 from watcher import EventQueue
 
-from .server import AcceptorServer
-from .notify import LocalNotifiy
-from .notify import RemoteNotifiy
+from .notify import Notify
 from .events import HIVE_EVENTS
+from .server import AcceptorServer
+
 
 DEFAULT_QUEUE_TIMEOUT = 1
 partial = lambda : functools.partial
@@ -41,7 +41,7 @@ class Watch:
 
         self._project = project
         self._paths = set()
-        self._channels = {"http://192.168.0.230:5111/"} # "http://192.168.0.230:5112/
+        self._channels = set() #{"http://192.168.0.230:5111/" "http://192.168.0.230:5112/
         self._target = set()
         self._loop = loop
         self._lock = asyncio.Lock(loop=loop)
@@ -76,7 +76,9 @@ class Watch:
 
     @property
     def key(self):
-        """jhgjhkgjhg
+        """
+
+        :return:
         """
         return self._project
 
@@ -161,12 +163,10 @@ class EventEmitter(BaseThread):
     """
     def __init__(self,
                  loop,
-                 root_dir: str,
                  event_queue: EventQueue,
                  timeout: float = DEFAULT_QUEUE_TIMEOUT):
         BaseThread.__init__(self)
         self.loop = loop
-        self.root_dir = root_dir
         self._event_queue = event_queue
         self._timeout = timeout
 
@@ -207,23 +207,18 @@ class HiveEventEmitter(EventEmitter):
 
     def __init__(self,
                  loop: 'asyncio.loop',
-                 root_dir: str,
                  event_queue: EventQueue,
                  watches: t.Dict[str, Watch],
-                 proj_depth: int,
-                 ignore_pattern: 'regex_pattern',
                  task_factory: 'asyncio.loop.create_task',
-                 hosts: t.Optional[str] = None,
-                 timeout=DEFAULT_QUEUE_TIMEOUT):
-        super().__init__(loop, root_dir, event_queue, timeout)
+                 timeout=DEFAULT_QUEUE_TIMEOUT,
+                 **kwargs):
+        super().__init__(loop, event_queue, timeout)
 
         self._lock = threading.Lock()
-        self._proj_depth = proj_depth
-        self._ignore_pattern = ignore_pattern
         self._watches = watches
         self._lock_factory = loop
         self._task_factory = task_factory
-        self._hosts = hosts
+        self.kwargs = kwargs
 
     @property
     def watches(self):
@@ -232,22 +227,6 @@ class HiveEventEmitter(EventEmitter):
         :return:
         """
         return self._watches
-
-    @property
-    def proj_depth(self):
-        """
-
-        :return:
-        """
-        return self._proj_depth
-
-    @property
-    def ignore_pattern(self):
-        """
-
-        :return:
-        """
-        return self._ignore_pattern
 
     def teardown_watch(self):
         """
@@ -295,36 +274,35 @@ class HiveEventEmitter(EventEmitter):
         with self._lock:
 
             # Get local event symbol
-            symbol = self._local_inotify.read_event()
+            symbols = self.notify.read_events()
+
             #Get watch from watches dictionary by project name
-            watch = self.watches.get(symbol.proj, None)
-            if not watch:
-                watch = self._produce_watch(symbol)
+            for symbol in symbols:
+                watch = self.watches.get(symbol.proj, None)
+                if not watch:
+                    watch = self._produce_watch(symbol)
 
-            try:
-                event = self._pull_event(symbol, watch)
-                print(event.event_type)
-                if not asyncio.iscoroutine(event) and \
-                        isinstance(event, t.Callable):
-                    event = event()
+                try:
+                    event = self._pull_event(symbol, watch)
+                    print(event.event_type)
+                    if not asyncio.iscoroutine(event) and \
+                            isinstance(event, t.Callable):
+                        event = event()
 
-                task = self._task_factory(event)
-                self.queue_event(task)
-            except Exception as e:
-                if isinstance(e, KeyError):
+                    task = self._task_factory(event)
+                    self.queue_event(task)
+                except Exception as e:
+                    if isinstance(e, KeyError):
+                        raise e
                     raise e
-                raise e
 
     def on_thread_start(self):
-       """
-       :return:
-       """
-       self._local_inotify = LocalNotifiy(
-                                    self.root_dir,
-                                    self.proj_depth,
-                                    self.ignore_pattern)
-        # self._remote_inotify = RemoteNotifiy(self.notify_lock)
+        """
 
+        :return:
+        """
+
+        self.notify = Notify(**self.kwargs)
 
 
 class HiveWatcher:
