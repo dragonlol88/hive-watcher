@@ -1,30 +1,43 @@
-import asyncio
 from . import HandlerBase
 
 
 class ChannelCreateHandler(HandlerBase):
 
     def __init__(self,
-                 event,
-                 http_auth=None,
-                 headers=None):
-        super().__init__(event, http_auth, headers)
+                 event):
+        super().__init__(event)
+        self.watch = event.watch
+        self.client_host = self.event.target
 
     async def handle(self):
-        async for channel in self.channels:
-            self.watch.add_channel(channel)
-            await asyncio.sleep(0)
+        """
+
+        :return:
+        """
+
+    def event_action(self, response):
+        """
+        Method to handle event synchronously
+        :return:
+        """
+        self.watch.add_channel(self.client_host)
+        return response
 
 
 class ChannelDeleteHandler(HandlerBase):
 
-    def __init__(self,
-                 event,
-                 http_auth=None,
-                 headers=None):
-        super().__init__(event, http_auth, headers)
+    def __init__(self, event):
+        super().__init__(event)
+        self.watch = event.watch
+        self.client_host = self.event.target
+
+    def event_action(self, response):
+        """
+        Method to handle event synchronously
+        :return:
+        """
+        return response
+
 
     async def handle(self):
-        async for channel in self.channels:
-            self.watch.discard_channel(channel)
-            await asyncio.sleep(0)
+        self.watch.discard_channel(self.client_host)
