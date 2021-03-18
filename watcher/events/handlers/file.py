@@ -31,6 +31,39 @@ class AsyncFileIO(aiofiles.base.AiofilesContextManager):
         self._obj = None
 
 
+def get_file_io(file_name):
+    """
+
+    :param file_name:
+    :return:
+    """
+
+    return AsyncFileIO(_open(file_name))
+
+
+async def stream(file: str):
+    """
+    Coroutine to generate file byte stream for massive file transfer.
+
+    :param file:
+        file name will be called
+
+    """
+
+    fileio = get_file_io(file)
+    buffer = await fileio.open()
+    chunk = await buffer.read(READ_SIZE)
+    chunk += chunk
+
+    while chunk:
+        yield chunk
+        chunk = await buffer.read(READ_SIZE)
+
+    await fileio.close()
+
+
+
+
 class FileHandler(HandlerBase):
 
     method = 'POST'
@@ -42,7 +75,7 @@ class FileHandler(HandlerBase):
 
         super().__init__(event)
 
-        self._watch = event.watch
+        self.watch = event.watch
         self.headers = headers or {}
         self._file = self.event.target
 
@@ -75,20 +108,12 @@ class FileHandler(HandlerBase):
         return self.event.loop
 
     @property
-    def watch(self):
-        """
-
-        :return:
-        """
-        return self._watch
-
-    @property
     async def channels(self):
         """
 
         :return:
         """
-        for channel in self.watch._channels:
+        for channel in self.watch.channels:
             yield channel
 
     @property
@@ -97,7 +122,7 @@ class FileHandler(HandlerBase):
 
         :return:
         """
-        for path in self.watch._paths:
+        for path in self.watch.paths:
             yield path
 
     @property
@@ -106,7 +131,6 @@ class FileHandler(HandlerBase):
 
         :return:
         """
-        stream = self._stream
 
         return stream(self._file)
 
@@ -142,37 +166,10 @@ class FileHandler(HandlerBase):
             raise e
 
         finally:
+
             await self.session.close()
 
         return responses
-
-    async def _stream(self, file: str):
-        """
-        Method to generate file byte stream for massive file transfer.
-
-        :param file_name:
-            file name will be called
-
-        """
-        fileio = self.get_file_io(file)
-        buffer = await fileio.open()
-        chunk = await buffer.read(READ_SIZE)
-        chunk += chunk
-
-        while chunk:
-            yield chunk
-            chunk = await buffer.read(READ_SIZE)
-
-        await fileio.close()
-
-
-    def get_file_io(self, file_name):
-        """
-
-        :param
-            file_name:
-        """
-        return AsyncFileIO(_open(file_name))
 
 
 class FileCreatedHandler(FileHandler):
@@ -199,4 +196,5 @@ class FileDeletedHandler(FileHandler):
 
 
 class FileModifiedHandler(FileHandler):
+
     method = 'POST'
