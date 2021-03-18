@@ -16,5 +16,6 @@ HIVE_EVENTS = {
     EventStatus.FILE_DELETED: FileDeletedEvent,
     EventStatus.FILE_CREATED: FileCreatedEvent,
     EventStatus.FILE_MODIFIED: FileModifiedEvent,
-
+    EventStatus.CREATE_CHANNEL: CreateChannelEevent,
+    EventStatus.DELETE_CHANNEL: DeleteChannelEevent
 }
