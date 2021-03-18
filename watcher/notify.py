@@ -1,13 +1,17 @@
-
-
 import time
+import queue
 import threading
-import http.server
 import selectors
 import typing as t
 
+from werkzeug.serving import BaseWSGIServer as WSGIServer
+from werkzeug.wrappers import Response
+
 from .buffer import LocalBuffer
 from .buffer import RemoteBuffer
+from .buffer import DummyBuffer
+from .buffer import EventSymbol
+
 from watcher import BaseThread, EventQueue
 
 if hasattr(selectors, 'PollSelector'):
@@ -15,10 +19,55 @@ if hasattr(selectors, 'PollSelector'):
 else:
     _ServerSelector = selectors.SelectSelector
 
+_TSSLContextArg = t.Optional[
+    t.Union["ssl.SSLContext", t.Tuple[str, t.Optional[str]], "te.Literal['adhoc']"]
+]
 
 EVENT_PERIOD = 0.5
 
-class LocalNotifiy(BaseThread):
+
+class Notify:
+
+    __notifies__ = set()
+
+    def __init__(self, **kwargs):
+
+        self.params = kwargs
+        self.notifies = []
+
+        for notify in self.__notifies__:
+            noti_kwargs = {}
+            notify_name = notify.__name__.lower()
+            for arg, value in self.params.items():
+                seperated_arg = arg.split("_")
+
+                cls_name = seperated_arg[0]
+
+                arg_name = '_'.join(seperated_arg[1:])
+                if notify_name == cls_name:
+                    noti_kwargs[arg_name] = value
+            self.notifies.append(notify(**noti_kwargs))
+
+    @classmethod
+    def register(cls, notify):
+        """
+        register
+        :param notify:
+        :return:
+        """
+        cls.__notifies__.add(notify)
+
+    def read_events(self):
+
+        symbols = []
+        for notify in self.notifies:
+            symbol = notify.read_event()
+            symbols.append(symbol)
+
+        return [symbol for symbol in symbols if isinstance(symbol, EventSymbol)]
+
+
+class LocalNotify(BaseThread):
     """
     :param root_dir
     :param proj_depth
@@ -40,7 +89,11 @@ class LocalNotifiy(BaseThread):
         """
         :return:
         """
-        return self._event_queue.get()
+        try:
+            q = self._event_queue.get(timeout=0.001)
+        except queue.Empty:
+            q = set()
+        return q
 
     def queue_event(self, event):
         """
@@ -62,22 +115,51 @@ class LocalNotifiy(BaseThread):
             time.sleep(EVENT_PERIOD)
 
 
+Notify.register(LocalNotify)
 
-class RemoteNotifiy(BaseThread, http.server.HTTPServer):
+
+class RemoteNotify(BaseThread, WSGIServer):
 
     def __init__(self,
-                 server_address):
+                 host: str,
+                 port: int,
+                 app: t.Optional["WSGIApplication"] = None,
+                 handler: t.Optional[t.Type["RemoteBuffer"]] = RemoteBuffer,
+                 passthrough_errors: bool = False,
+                 ssl_context: t.Optional[_TSSLContextArg] = None,
+                 fd: t.Optional[int] = None,
+                 ) -> None:
 
         BaseThread.__init__(self)
-        http.server.HTTPServer.__init__(server_address, RemoteBuffer)
+
+        if app is None:
+            # response....
+            app = Response("hello response ok")
+
+        WSGIServer.__init__(self,
+                            host,
+                            port,
+                            app,
+                            handler,
+                            passthrough_errors,
+                            ssl_context,
+                            fd)
+
         self._lock = threading.RLock()
         self._event_queue = EventQueue()
+        self.initialize_buffer()
         self.start()
 
+    def initialize_buffer(self):
+        """
+
+        :return:
+        """
+        self._buffer = DummyBuffer()
 
     def serve_forever(self, poll_interval=0.5):
         try:
-            super().serve_forever(poll_interval)
+            WSGIServer.serve_forever(self)
         except KeyboardInterrupt:
             pass
         finally:
@@ -88,7 +170,11 @@ class RemoteNotifiy(BaseThread, http.server.HTTPServer):
 
         :return:
         """
-        return self._event_queue.get()
+        try:
+            q = self._event_queue.get(timeout=0.001)
+        except queue.Empty:
+            q = ''
+        return q
 
     def queue_event(self, event):
         """
@@ -100,6 +186,7 @@ class RemoteNotifiy(BaseThread, http.server.HTTPServer):
 
     def finish_request(self, request, client_address):
         """Finish one request by instantiating RequestHandlerClass."""
+
         self._buffer = self.RequestHandlerClass(request, client_address, self)
 
     def service_actions(self) -> None:
@@ -107,14 +194,18 @@ class RemoteNotifiy(BaseThread, http.server.HTTPServer):
 
         :return:
         """
-        events = self._buffer.read_events()
-        while events:
-            event = events.pop()
-            self.queue_event(event)
+        with self._lock:
+            events = self._buffer.read_events()
+            while events:
+                event = events.pop()
+                self.queue_event(event)
+
+            self.initialize_buffer()
 
     def run(self):
         while self.should_keep_running():
             self.serve_forever()
 
 
+Notify.register(RemoteNotify)
 
