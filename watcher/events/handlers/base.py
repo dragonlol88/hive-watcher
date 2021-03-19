@@ -10,7 +10,7 @@ class HandlerBase:
     # Http Rquest method
     method = 'POST'
 
-    def __init__(self, event: t.Union[ChannelEventTypes, FileEventTypes]):
+    def __init__(self, event: t.Union['ChannelEventTypes', 'FileEventTypes']):
 
         self.event = event
         self.event_type = event.event_type

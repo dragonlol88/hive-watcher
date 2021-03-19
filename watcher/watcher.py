@@ -12,6 +12,10 @@ from .buffer import EventSymbol
 from .type import Loop, Task
 from .wrapper.response import WatcherConnector
 
+if t.TYPE_CHECKING:
+    from .events import EventBase
+    from .type import Task
+    EVENT_TYPE = EventBase
 
 DEFAULT_QUEUE_TIMEOUT = 1
 partial = lambda : functools.partial
@@ -163,7 +167,7 @@ class EventEmitter(BaseThread):
         """
         return self._timeout
 
-    def queue_event(self, event: 'Event'):                                                    # type: ignore
+    def queue_event(self, task: 'Task'):
         """
         Queues a single event.
 
@@ -171,7 +175,7 @@ class EventEmitter(BaseThread):
             Event to be queued.
             event: <class:watcher.events.*>
         """
-        self._event_queue.put(event)
+        self._event_queue.put(task)
 
     def queue_events(self, timeout: float):
         """Override this method to populate the event queue with events
@@ -239,7 +243,7 @@ class HiveEventEmitter(EventEmitter):
         self.watches[proj] = watch
         return watch
 
-    def _pull_event(self, symbol: EventSymbol, watch: Watch) -> 'Event':                      # type: ignore
+    def _pull_event(self, symbol: EventSymbol, watch: Watch) -> 'EVENT_TYPE':
         """
 
         :param event:
@@ -270,13 +274,14 @@ class HiveEventEmitter(EventEmitter):
                     watch = self._produce_watch(symbol)
 
                 try:
-                    event = self._pull_event(symbol, watch)
+                    event: 'EVENT_TYPE' = self._pull_event(symbol, watch)
                     print(event.event_type)
-                    if not asyncio.iscoroutine(event) and \
-                            isinstance(event, t.Callable):                                    # type: ignore
-                        event = event()
+                    if not isinstance(event, t.Callable):                                     # type: ignore
+                        raise TypeError
 
-                    task = self._task_factory(event)
+                    coroutine_event: t.Coroutine = event()
+                    task = self._task_factory(coroutine_event)
+
                     self.queue_event(task)
                 except Exception as e:
                     if isinstance(e, KeyError):

@@ -14,7 +14,7 @@ class EventBase:
 
     default_max_worker = 4
     event_type: t.Union[t.Any]
-    handler_class: t.Union[t.Any, FileHandlerTypes, ChannelHandlerTypes]
+    handler_class: t.Union[t.Any, 'FileHandlerTypes', 'ChannelHandlerTypes']
 
     def __init__(self,
                  watch: 'Watch',
