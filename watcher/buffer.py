@@ -22,13 +22,13 @@ class EventSymbol:
 
     def __init__(self,
                  proj: str,
-                 event_type: t.Optional[t.Union['enum', int]] = None):                                    # type: ignore
+                 event_type: t.Optional[t.Union[EventStatus, int]] = None):
 
         self.proj = proj
         self._event_type = event_type
 
     @property
-    def event_type(self) -> t.Union['enum', int]:                                                         # type: ignore
+    def event_type(self) -> t.Optional[t.Union[EventStatus, int]]:
         return self._event_type
 
     @property
@@ -51,7 +51,8 @@ class LocalEventSymbol(EventSymbol):
     def __init__(self,
                  proj: str,
                  path: str,
-                 event_type: t.Union['enum', int]):                                                       # type: ignore
+                 event_type: t.Optional[t.Union[EventStatus, int]] = None
+                 ):
         super().__init__(proj, event_type)
 
         self.path = path
@@ -111,23 +112,26 @@ class RemoteEventSymbol(EventSymbol):
 
     def __init__(self,
                  proj: str,
-                 environ: t.Dict[str, t.Any]
+                 environ: t.Dict[str, t.Any],
+                 event_type: t.Optional[t.Union[EventStatus, int]] = None
                  ):
 
-        super().__init__(proj)
+        super().__init__(proj, event_type)
 
         self.environ = environ
         self.request = WSGIRequest(environ)
 
+        if event_type is None:
+            self._event_type = int(self.headers.get('Event-Type'))                                # type: ignore
 
     @property
-    def event_type(self) -> int:
+    def event_type(self) -> t.Optional[t.Union[EventStatus, int]]:
         """
         Propery of event type
         :return:
             event type
         """
-        return int(self.headers.get('Event-Type'))                                                        # type: ignore
+        return self._event_type
 
     @property
     def client_host(self) -> str:
@@ -140,7 +144,7 @@ class RemoteEventSymbol(EventSymbol):
         """
         scheme = self.environ.get("wsgi.url_scheme")
         client_address = self.client_address, self.client_port
-        return scheme + "://" + ":".join(client_address)                                                  # type: ignore
+        return scheme + "://" + ":".join(client_address)                                          # type: ignore
 
     @property
     def headers(self) -> 'EnvironHeaders':
@@ -306,9 +310,9 @@ class RemoteBuffer(WSGIRequestHandler):
     # router 어떻게 시킬지
 
     def __init__(self,
-                 request: 'Socket',                                                                       # type: ignore
+                 request: 'Socket',                                                           # type: ignore
                  client_address: t.Tuple[str, int],
-                 server: 'RemoteNotify'):                                                                 # type: ignore
+                 server: 'RemoteNotify'):                                                     # type: ignore
         super().__init__(request, client_address, server)
 
     @property

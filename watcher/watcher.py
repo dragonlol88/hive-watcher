@@ -116,7 +116,7 @@ class Watch:
         """
         return self.key == watch.key
 
-    def __ne__(self, watch: "Watch") -> bool:                                                             # type: ignore
+    def __ne__(self, watch: "Watch") -> bool:                                                 # type: ignore
         """
 
         :param watch:
@@ -163,7 +163,7 @@ class EventEmitter(BaseThread):
         """
         return self._timeout
 
-    def queue_event(self, event: 'Event'):                                                                # type: ignore
+    def queue_event(self, event: 'Event'):                                                    # type: ignore
         """
         Queues a single event.
 
@@ -237,7 +237,7 @@ class HiveEventEmitter(EventEmitter):
         self.watches[proj] = watch
         return watch
 
-    def _pull_event(self, symbol: EventSymbol, watch: Watch) -> 'Event':                                  # type: ignore
+    def _pull_event(self, symbol: EventSymbol, watch: Watch) -> 'Event':                      # type: ignore
         """
 
         :param event:
@@ -248,7 +248,7 @@ class HiveEventEmitter(EventEmitter):
         if event_type not in HIVE_EVENTS:
             raise KeyError
 
-        return HIVE_EVENTS[event_type](watch, symbol, loop)                                               # type: ignore
+        return HIVE_EVENTS[event_type](watch, symbol, loop)                                   # type: ignore
 
     def queue_events(self, timeout: float) -> None:
         """
@@ -272,7 +272,7 @@ class HiveEventEmitter(EventEmitter):
                     event = self._pull_event(symbol, watch)
                     print(event.event_type)
                     if not asyncio.iscoroutine(event) and \
-                            isinstance(event, t.Callable):                                                # type: ignore
+                            isinstance(event, t.Callable):                                    # type: ignore
                         event = event()
 
                     task = self._task_factory(event)

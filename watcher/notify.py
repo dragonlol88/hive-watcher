@@ -17,10 +17,10 @@ from watcher import BaseThread, EventQueue
 if hasattr(selectors, 'PollSelector'):
     _ServerSelector = selectors.PollSelector
 else:
-    _ServerSelector = selectors.SelectSelector                                                            # type: ignore
+    _ServerSelector = selectors.SelectSelector                                                 # type: ignore
 
 _TSSLContextArg = t.Optional[
-    t.Union["ssl.SSLContext", t.Tuple[str, t.Optional[str]], "te.Literal['adhoc']"]                       # type: ignore
+    t.Union["ssl.SSLContext", t.Tuple[str, t.Optional[str]], "te.Literal['adhoc']"]            # type: ignore
 ]
 
 EVENT_PERIOD = 0.5
@@ -37,7 +37,7 @@ class Notify:
 
         for notify in self.__notifies__:
             noti_kwargs = {}
-            notify_name = notify.__name__.lower()                                                         # type: ignore
+            notify_name = notify.__name__.lower()                                               # type: ignore
             for arg, value in self.params.items():
                 seperated_arg = arg.split("_")
 
@@ -46,7 +46,7 @@ class Notify:
                 arg_name = '_'.join(seperated_arg[1:])
                 if notify_name == cls_name:
                     noti_kwargs[arg_name] = value
-            self.notifies.append(notify(**noti_kwargs))                                                   # type: ignore
+            self.notifies.append(notify(**noti_kwargs))                                         # type: ignore
 
     @classmethod
     def register(cls, notify: t.Union[t.Any, 'LocalNotify', 'RemoteNotify']) -> None:
@@ -180,7 +180,7 @@ class RemoteNotify(BaseThread, WSGIServer):
         """
         self._event_queue.put(event)
 
-    def finish_request(self, request: 'Socket', client_address):                                          # type: ignore
+    def finish_request(self, request: 'Socket', client_address):                                 # type: ignore
         """Finish one request by instantiating RequestHandlerClass."""
 
         self._buffer = self.RequestHandlerClass(request, client_address, self)

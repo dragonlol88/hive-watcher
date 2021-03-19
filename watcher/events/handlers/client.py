@@ -13,12 +13,12 @@ class Session:
     def __init__(self,
                  *,
                  loop: Loop,
-                 headers: t.Optional[t.Dict[str, str]] = {},
-                 http_auth: t.Optional[t.Tuple[str, str]] = None,
-                 timeout: t.Optional[float] = 300,
-                 read_timeout: t.Optional[float] = 300,
-                 keepalive_timeout: t.Optional[float] = 15,
-                 total_connections: t.Optional[float] = 30,
+                 headers: t.Dict[str, str] = {},
+                 http_auth: t.Optional[t.Union[t.Tuple[str, str],str]] = None,
+                 timeout: float = 300,
+                 read_timeout: float = 300,
+                 keepalive_timeout: float = 15,
+                 total_connections: float = 30,
                  **kwargs
                  ):
 
@@ -38,12 +38,12 @@ class Session:
 
         if http_auth is not None:
             if isinstance(http_auth, (tuple, list)):
-                http_auth = ":".join(http_auth)                                                           # type: ignore
+                http_auth = ":".join(http_auth)
             headers.update(urllib3.make_headers(basic_auth=http_auth))
 
         if self.keepalive_timeout:
             keep_alive = 'timeout=%d, max=%d' % \
-                         (self.keepalive_timeout, self.total_connections)                                 # type: ignore
+                         (self.keepalive_timeout, self.total_connections)
 
             headers.update({'keep-alive':keep_alive})
 

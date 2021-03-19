@@ -5,7 +5,7 @@ class HandlerBase:
     # Http Rquest method
     method = 'POST'
 
-    def __init__(self, event: 'Event', **kwargs): #type: ignore
+    def __init__(self, event: 'Event', **kwargs):                                              #type: ignore
 
         self.event = event
         self.event_type = event.event_type

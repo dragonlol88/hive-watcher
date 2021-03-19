@@ -6,7 +6,7 @@ import concurrent.futures
 from watcher.buffer import RemoteEventSymbol
 from watcher.buffer import LocalEventSymbol
 from watcher.buffer import EventSymbol
-
+from watcher.type import Loop
 
 class EventBase:
 
@@ -14,10 +14,10 @@ class EventBase:
     event_type: t.Union[t.Any]
 
     def __init__(self,
-                 watch: 'Watch', # type: ignore
+                 watch: 'Watch',                                                             # type: ignore
                  symbol: EventSymbol,
-                 loop: t.Optional[asyncio.BaseEventLoop] = None,
-                 handler_class: t.Optional['Handler'] = None, #type: ignore
+                 loop: t.Optional[Loop] = None,
+                 handler_class: t.Optional['Handler'] = None,                                #type: ignore
                  **kwargs):
 
         self.loop = loop
@@ -36,7 +36,7 @@ class EventBase:
         if handler_class:
             self.handler_class = handler_class
 
-        self.handler = self.handler_class(self, **kwargs) # type: ignore
+        self.handler = self.handler_class(self, **kwargs)                                     # type: ignore
 
     @property
     def target(self) -> t.Optional[str]:
@@ -48,23 +48,6 @@ class EventBase:
     def evoke_success_logs(self):
         pass
 
-    def _set_executor(self, max_worker: t.Optional[int] = 5):
-
-        if not max_worker:
-            max_worker = self.default_max_worker
-        self._executor = concurrent.futures.ThreadPoolExecutor(max_worker=max_worker) # type: ignore
-
-    async def run_in_executor(self,
-                              func: t.Callable[[t.Any], t.Any],
-                              *args: t.Any) -> t.Any:
-
-        #no async http 일 때
-        loop = self.loop
-        if not self._executor:
-            self._set_executor()
-        return await loop.run_in_executor(self._executor, # type: ignore
-                                          func,
-                                          *args)
 
     async def handle_event(self) -> t.Any:
         # 1. parameter 준비

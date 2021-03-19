@@ -10,7 +10,7 @@ from watcher import EventStatus
 from watcher.type import Loop
 
 _open = functools.partial(
-            aiofiles.threadpool._open,                                                                    # type: ignore
+            aiofiles.threadpool._open,                                                        # type: ignore
             mode='rb'
         )
 
@@ -72,7 +72,7 @@ class FileHandler(HandlerBase):
     method = 'POST'
 
     def __init__(self,
-                 event: 'Event',                                                                          # type: ignore
+                 event: 'Event',                                                              # type: ignore
                  headers: t.Dict[str, str] = {},
                  **kwargs):
 
@@ -84,13 +84,13 @@ class FileHandler(HandlerBase):
 
         file_name = self.headers.get('file-name', None)
         if not file_name:
-            file_name = os.path.basename(self._file)
             # remote client 파일 저장 장소는 client에서 설정 할 수 있도록하기
-            self.headers['file-name'] = file_name                                                          #type: ignore
+            self.headers['file-name'] = os.path.basename(self._file)
 
         event_type_value = self.event_type.value
         if not isinstance(event_type_value, str):
              event_type_value = str(self.event_type.value)
+
         self.headers['event-type'] = event_type_value
 
         content_type = self.headers.get('Content-Type', None)
