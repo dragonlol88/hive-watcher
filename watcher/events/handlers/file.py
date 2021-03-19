@@ -129,7 +129,7 @@ class FileHandler(HandlerBase):
             yield path
 
     @property
-    def data(self) -> t.Any:
+    def data(self) -> bytes:
         """
 
         :return:
