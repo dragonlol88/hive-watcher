@@ -4,15 +4,14 @@ import threading
 import selectors
 import typing as t
 
-from werkzeug.serving import BaseWSGIServer as WSGIServer
-from werkzeug.wrappers import Response
+from werkzeug.serving import ThreadedWSGIServer as WSGIServer
 
 from .buffer import LocalBuffer
 from .buffer import RemoteBuffer
-from .buffer import DummyBuffer
 from .buffer import EventSymbol
 
 from watcher import BaseThread, EventQueue
+
 
 if hasattr(selectors, 'PollSelector'):
     _ServerSelector = selectors.PollSelector
@@ -23,6 +22,10 @@ _TSSLContextArg = t.Optional[
     t.Union["ssl.SSLContext", t.Tuple[str, t.Optional[str]], "te.Literal['adhoc']"]            # type: ignore
 ]
 
+if t.TYPE_CHECKING:
+    from .wrapper.response import WatcherConnector
+
+
 EVENT_PERIOD = 0.5
 
 
@@ -30,9 +33,8 @@ class Notify:
 
     __notifies__: t.Set[t.Union['RemoteNotify', 'LocalNotify']] = set()
 
-    def __init__(self, **kwargs: t.Dict[str, t.Any]):
-
-        self.params = kwargs
+    def __init__(self, **params: t.Dict[str, t.Any]):
+        self.params = params
         self.notifies = []
 
         for notify in self.__notifies__:
@@ -46,7 +48,9 @@ class Notify:
                 arg_name = '_'.join(seperated_arg[1:])
                 if notify_name == cls_name:
                     noti_kwargs[arg_name] = value
-            self.notifies.append(notify(**noti_kwargs))                                         # type: ignore
+
+            buffer_queue: queue.Queue = queue.Queue()
+            self.notifies.append(notify(buffer_queue=buffer_queue, **noti_kwargs))              # type: ignore
 
     @classmethod
     def register(cls, notify: t.Union[t.Any, 'LocalNotify', 'RemoteNotify']) -> None:
@@ -77,12 +81,14 @@ class LocalNotify(BaseThread):
     def __init__(self,
                  root_dir: str,
                  proj_depth: int,
-                 ignore_pattern: str):
+                 ignore_pattern: str,
+                 buffer_queue: queue.Queue):
         super().__init__()
 
         self._lock = threading.Lock()
         self._event_queue = EventQueue()
-        self._buffer = LocalBuffer(root_dir, proj_depth, ignore_pattern)
+        self._buffer_queue = buffer_queue
+        self._buffer = LocalBuffer(root_dir, proj_depth, ignore_pattern, buffer_queue)
         self.start()
 
     def read_event(self) -> EventSymbol:
@@ -118,11 +124,13 @@ class LocalNotify(BaseThread):
 Notify.register(LocalNotify)
 
 
-class RemoteNotify(BaseThread, WSGIServer):
+class RemoteNotify(BaseThread,  WSGIServer):
 
     def __init__(self,
                  host: str,
                  port: int,
+                 connector: 'WatcherConnector',
+                 buffer_queue: queue.Queue,
                  handler: t.Optional[t.Type["RemoteBuffer"]] = RemoteBuffer,
                  passthrough_errors: bool = False,
                  ssl_context: t.Optional[_TSSLContextArg] = None,
@@ -131,7 +139,10 @@ class RemoteNotify(BaseThread, WSGIServer):
 
         BaseThread.__init__(self)
 
-        app = Response("hello response ok")
+
+        app = None
+        self.connector = connector
+
         WSGIServer.__init__(self,
                             host,
                             port,
@@ -143,15 +154,12 @@ class RemoteNotify(BaseThread, WSGIServer):
 
         self._lock = threading.RLock()
         self._event_queue = EventQueue()
-        self.initialize_buffer()
+        self._buffer_queue = buffer_queue
         self.start()
 
-    def initialize_buffer(self):
-        """
-
-        :return:
-        """
-        self._buffer = DummyBuffer()
+    @property
+    def buffer_queue(self):
+        return self._buffer_queue
 
     def serve_forever(self, poll_interval=0.5):
         try:
@@ -183,7 +191,22 @@ class RemoteNotify(BaseThread, WSGIServer):
     def finish_request(self, request: 'Socket', client_address):                                 # type: ignore
         """Finish one request by instantiating RequestHandlerClass."""
 
-        self._buffer = self.RequestHandlerClass(request, client_address, self)
+        self.RequestHandlerClass(request, client_address, self)
+
+    def read_buffer_event(self) -> t.Set[t.Any]:
+        """
+        :return:
+        """
+        events = set()
+        is_empty = False
+        while not is_empty:
+            try:
+                es = self.buffer_queue.get(timeout=0)
+                events.add(es)
+            except queue.Empty:
+                is_empty = True
+
+        return events
 
     def service_actions(self) -> None:
         """
@@ -191,12 +214,10 @@ class RemoteNotify(BaseThread, WSGIServer):
         :return:
         """
         with self._lock:
-            events = self._buffer.read_events()
+            events = self.read_buffer_event()
             while events:
                 event = events.pop()
                 self.queue_event(event)
-
-            self.initialize_buffer()
 
     def run(self):
         while self.should_keep_running():

@@ -1,23 +1,27 @@
-import asyncio
 import typing as t
-import concurrent.futures
-
 
 from watcher.buffer import RemoteEventSymbol
 from watcher.buffer import LocalEventSymbol
-from watcher.buffer import EventSymbol
-from watcher.type import Loop
+
+
+if t.TYPE_CHECKING:
+    from watcher.type import Loop
+    from watcher.watcher import Watch
+    from watcher.buffer import EventSymbol
+    from .handlers import FileHandlerTypes, ChannelHandlerTypes
 
 class EventBase:
 
     default_max_worker = 4
     event_type: t.Union[t.Any]
+    handler_class: t.Union[t.Any, FileHandlerTypes, ChannelHandlerTypes]
 
     def __init__(self,
-                 watch: 'Watch',                                                             # type: ignore
-                 symbol: EventSymbol,
-                 loop: t.Optional[Loop] = None,
-                 handler_class: t.Optional['Handler'] = None,                                # type: ignore
+                 watch: 'Watch',
+                 symbol: 'EventSymbol',
+                 loop: 'Loop',
+                 handler_class: t.Optional[
+                     t.Union['FileHandlerTypes', 'ChannelHandlerTypes']] = None,
                  **kwargs):
 
         self.loop = loop
@@ -25,7 +29,6 @@ class EventBase:
         self.watch = watch
 
         self._lock = self.watch.lock
-        self._target = None  # target file path
 
         if isinstance(symbol, LocalEventSymbol):
             self._target = symbol.path
@@ -39,7 +42,7 @@ class EventBase:
         self.handler = self.handler_class(self, **kwargs)                                     # type: ignore
 
     @property
-    def target(self) -> t.Optional[str]:
+    def target(self) -> str:
         return self._target
 
     def evoke_failure_logs(self):

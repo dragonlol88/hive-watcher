@@ -1,3 +1,4 @@
+import typing as t
 from watcher import EventStatus
 
 from .base import EventBase
@@ -6,6 +7,9 @@ from .file import (FileModifiedEvent,
                    FileDeletedEvent)
 
 from .connection import CreateChannelEvent, DeleteChannelEvent
+
+FileEventTypes = t.Union[FileModifiedEvent, FileCreatedEvent, FileDeletedEvent]
+ChannelEventTypes = t.Union[CreateChannelEvent, DeleteChannelEvent]
 
 __all__ = ("EventBase",
            "FileModifiedEvent",

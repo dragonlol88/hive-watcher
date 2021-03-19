@@ -1,14 +1,20 @@
 import typing as t
+from watcher.type import Loop
+
+if t.TYPE_CHECKING:
+    from watcher.events import ChannelEventTypes, FileEventTypes
+    from watcher.type import Loop
 
 class HandlerBase:
 
     # Http Rquest method
     method = 'POST'
 
-    def __init__(self, event: 'Event', **kwargs):                                              # type: ignore
+    def __init__(self, event: t.Union[ChannelEventTypes, FileEventTypes]):
 
         self.event = event
         self.event_type = event.event_type
+        self.watch = event.watch
 
     def event_action(self, response: t.Any) -> t.Any:
         """
@@ -31,3 +37,29 @@ class HandlerBase:
         response = self.event_action(response)
 
         return response
+
+    @property
+    def loop(self) -> Loop:
+        """
+
+        :return:
+        """
+        return self.event.loop
+
+    @property
+    async def channels(self) -> t.AsyncGenerator:
+        """
+
+        :return:
+        """
+        for channel in self.watch.channels:
+            yield channel
+
+    @property
+    async def paths(self) -> t.AsyncGenerator:
+        """
+
+        :return:
+        """
+        for path in self.watch.paths:
+            yield path

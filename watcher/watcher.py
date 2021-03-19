@@ -1,4 +1,3 @@
-import os
 import asyncio
 import threading
 import functools
@@ -11,6 +10,7 @@ from .notify import Notify
 from .events import HIVE_EVENTS
 from .buffer import EventSymbol
 from .type import Loop, Task
+from .wrapper.response import WatcherConnector
 
 
 DEFAULT_QUEUE_TIMEOUT = 1
@@ -191,20 +191,22 @@ class EventEmitter(BaseThread):
 
 class HiveEventEmitter(EventEmitter):
 
+    connector_cls = WatcherConnector
+
     def __init__(self,
                  loop: Loop,
                  event_queue: EventQueue,
                  watches: t.Dict[str, Watch],
                  task_factory: t.Callable[[t.Coroutine], Task],
-                 timeout=DEFAULT_QUEUE_TIMEOUT,
-                 **kwargs):
+                 timeout: float = DEFAULT_QUEUE_TIMEOUT,
+                 **params):
         super().__init__(loop, event_queue, timeout)
 
         self._lock = threading.Lock()
         self._watches = watches
         self._lock_factory = loop
         self._task_factory = task_factory
-        self.kwargs = kwargs
+        self.params = params
 
     @property
     def watches(self):
@@ -247,8 +249,7 @@ class HiveEventEmitter(EventEmitter):
         loop = self.loop
         if event_type not in HIVE_EVENTS:
             raise KeyError
-
-        return HIVE_EVENTS[event_type](watch, symbol, loop)                                   # type: ignore
+        return HIVE_EVENTS[event_type](watch, symbol, loop)                        # type: ignore
 
     def queue_events(self, timeout: float) -> None:
         """
@@ -287,8 +288,10 @@ class HiveEventEmitter(EventEmitter):
 
         :return:
         """
+        if 'remotenotify_connector' not in self.params:
+            self.params.update({"remotenotify_connector": self.connector_cls})
 
-        self.notify = Notify(**self.kwargs)
+        self.notify = Notify(**self.params)
 
 #
 # class HiveWatcher:

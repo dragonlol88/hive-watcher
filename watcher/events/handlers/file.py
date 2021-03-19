@@ -7,7 +7,6 @@ from . import HandlerBase
 from . import Session
 
 from watcher import EventStatus
-from watcher.type import Loop
 
 _open = functools.partial(
             aiofiles.threadpool._open,                                                        # type: ignore
@@ -17,6 +16,10 @@ _open = functools.partial(
 READ_SIZE = 64 * 1024
 EVENT_SLEEP_TIME = 1e-5
 
+if t.TYPE_CHECKING:
+    from ..file import FileDeletedEvent
+    from ..file import FileCreatedEvent
+    from ..file import FileModifiedEvent
 
 class AsyncFileIO(aiofiles.base.AiofilesContextManager):
 
@@ -72,70 +75,26 @@ class FileHandler(HandlerBase):
     method = 'POST'
 
     def __init__(self,
-                 event: 'Event',                                                              # type: ignore
-                 headers: t.Dict[str, str] = {},
+                 event: t.Union['FileDeletedEvent',
+                                'FileCreatedEvent',
+                                'FileModifiedEvent'],
                  **kwargs):
 
         super().__init__(event)
 
-        self.watch = event.watch
-        self.headers = headers
-        self._file = self.event.target
 
-        file_name = self.headers.get('file-name', None)
-        if not file_name:
-            # remote client 파일 저장 장소는 client에서 설정 할 수 있도록하기
-            self.headers['file-name'] = os.path.basename(self._file)
-
-        event_type_value = self.event_type.value
-        if not isinstance(event_type_value, str):
-             event_type_value = str(self.event_type.value)
-
-        self.headers['event-type'] = event_type_value
-
-        content_type = self.headers.get('Content-Type', None)
-        if not content_type and self.event_type:
-            if self.event_type in (EventStatus.FILE_CREATED,
-                                   EventStatus.FILE_MODIFIED,
-                                   EventStatus.FILE_DELETED):
-                self.headers['Content-Type'] = 'application/octet-stream'
-
+        self.file = self.event.target
+        self.headers = self.update_headers(self.file)
         self.session = Session(loop=self.loop, headers=self.headers, **kwargs)
 
     @property
-    def loop(self) -> Loop:
-        """
-
-        :return:
-        """
-        return self.event.loop
-
-    @property
-    async def channels(self) -> t.AsyncGenerator:
-        """
-
-        :return:
-        """
-        for channel in self.watch.channels:
-            yield channel
-
-    @property
-    async def paths(self) -> t.AsyncGenerator:
-        """
-
-        :return:
-        """
-        for path in self.watch.paths:
-            yield path
-
-    @property
-    def data(self) -> bytes:
+    def data(self):
         """
 
         :return:
         """
 
-        return stream(self._file)
+        return stream(self.file)
 
     @property
     def body(self) -> bytes:
@@ -144,6 +103,40 @@ class FileHandler(HandlerBase):
         :return:
         """
         return b''
+
+    def update_headers(self, file):
+        """
+
+        :return:
+        """
+
+        self.headers: t.Dict[str, str] = {}
+        file_name = os.path.basename(file)
+
+        try:
+            value = self.event_type.value
+            if not isinstance(value, str):
+                value = str(value)
+            if self.event_type in (EventStatus.FILE_CREATED,
+                                   EventStatus.FILE_MODIFIED,
+                                   EventStatus.FILE_DELETED):
+                content_type = 'application/octet-stream'
+            else:
+                raise ValueError
+
+        except (AttributeError, ValueError) as e:
+            # log
+            raise e
+
+        else:
+            self.headers.update({
+                "File-Name": file_name,
+                 "Event-Type": value,
+                 "Content-Type": content_type
+                }
+            )
+        return self.headers
+
 
     def event_action(self, response):
         """
@@ -180,7 +173,7 @@ class FileCreatedHandler(FileHandler):
     method = 'POST'
 
     def event_action(self, response: t.Any) -> t.Any:
-        self.watch.add_path(self._file)
+        self.watch.add_path(self.file)
         return response
 
 

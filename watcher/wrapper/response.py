@@ -1,32 +1,50 @@
 import threading
 import typing as t
 
-from werkzeug.wrappers import Response
-
 
 class WatcherConnector:
 
-    def __init__(self,
-                 response_cls: Response,
-                 event: threading.Event):
+    def __init__(self, response_cls):
 
-        self.event = event
         self.response_cls = response_cls
-        self._injection_complete = False
+        self._injection_complete = threading.Event()
 
 
     def inject_data(self,
-                    data: t.Union[t.Iterable[bytes], bytes, t.Iterable[str], str]):
+                    data: t.Union[t.Iterable[bytes], bytes, t.Iterable[str], str],
+                    header: t.Dict[str, str] = None):
 
         # Todo data에 따라 먼저 인코드 디코드 시키는 코드 추가하기
-        try:
-            self.response_cls(data)
-            self._injection_complete = True
 
+        try:
+            self.response = self.response_cls(data)
+            if header:
+                self.response.headers.update(header)
         except Exception as e:
             raise e
-        if self._injection_complete:
-            self.event.set()
+
+        self.notify_injection_complete()
+
+    def wait_until_injection_complete(self):
+        """
+
+        :return:
+        """
+        self._injection_complete.wait()
+
+    def notify_injection_complete(self):
+        """
+
+        :return:
+        """
+        self._injection_complete.set()
+
+    def injection_clear(self):
+        """
+
+        :return:
+        """
+        self._injection_complete.clear()
 
     def __call__(
             self, environ: "WSGIEnvironment", start_response: "StartResponse"
@@ -38,6 +56,7 @@ class WatcherConnector:
         :return: an application iterator
         """
 
-        app_iter, status, headers = self.get_wsgi_response(environ)
-        start_response(status, headers)
+        self.wait_until_injection_complete()
+        app_iter = self.response.__call__(environ, start_response)
+        self.injection_clear()
         return app_iter

@@ -2,6 +2,7 @@ import os
 import re
 import http
 import socket
+import queue
 import typing as t
 
 from watcher import EventStatus
@@ -10,9 +11,7 @@ from watcher.exceptions import FilePaserError
 from werkzeug.wrappers import Request as WSGIRequest
 from werkzeug.serving import WSGIRequestHandler
 from werkzeug.datastructures import EnvironHeaders
-# buffer 단에서
-# local event 와 remote event의 공통사항을 묶을 수 있는 interface 하나 정의하자
-# 이듦도 다시 짓자
+from werkzeug.wrappers import Response
 
 EVENT_TYPE_KEY = 'Event-Type'
 PROJECT_KEY    = 'Project-Name'
@@ -74,15 +73,11 @@ class LocalEventSymbol(EventSymbol):
         """
 
         entities = path.split("/")
-        #Todo display log
+
+        # Todo display log
         try:
             self.file_type = entities[-2]
-            if self.file_type not in ('synonym', 'userdict', 'stopword', 'index'):
-                return False
-
             self.ext = os.path.splitext(path)[-1]
-            if self.ext not in ('.txt', '.json', '.xlsx'):
-                return False
 
         except (IndexError, OSError):
             return False
@@ -113,6 +108,7 @@ class RemoteEventSymbol(EventSymbol):
     def __init__(self,
                  proj: str,
                  environ: t.Dict[str, t.Any],
+                 connector: 'WatcherConnector',                                                  # type: ignore
                  event_type: t.Optional[t.Union[EventStatus, int]] = None
                  ):
 
@@ -120,6 +116,7 @@ class RemoteEventSymbol(EventSymbol):
 
         self.environ = environ
         self.request = WSGIRequest(environ)
+        self.connector = connector
 
         if event_type is None:
             self._event_type = int(self.headers.get('Event-Type'))                                # type: ignore
@@ -192,12 +189,15 @@ class LocalBuffer:
     def __init__(self,
                  root_path: str,
                  proj_depth: int,
-                 ignore_pattern: str):
+                 ignore_pattern: str,
+                 buffer_queue: queue.Queue):
 
         self._root_path = root_path
         self._project_depth = proj_depth
+        self.buffer_queue = buffer_queue
         self.files: t.Dict[str, t.Tuple[str,float]] = {}
         self.ignore_pattern = ignore_pattern
+
 
     @property
     def root_path(self) -> str:
@@ -209,7 +209,7 @@ class LocalBuffer:
 
     def _knock_dir(self,
                    path: str,
-                   symbols: t.Set[LocalEventSymbol],
+                   symbols: queue.Queue,
                    new_files: t.Dict[str, t.Tuple[str, float]],
                    depth: int,
                    proj: str = 'base'):
@@ -231,7 +231,7 @@ class LocalBuffer:
 
     def _knock_file(self,
                     path: str,
-                    symbols: t.Set[LocalEventSymbol],
+                    symbols: queue.Queue,
                     new_files: t.Dict[str, t.Tuple[str, float]],
                     stat: os.stat_result,
                     proj: str = 'base'): #default 이름 정하
@@ -241,17 +241,17 @@ class LocalBuffer:
         old_proj, old_mtime = self.files.get(path, (None, None))
 
         if not old_mtime:
-            symbols.add(LocalEventSymbol(proj,
+            symbols.put(LocalEventSymbol(proj,
                                          path,
                                          EventStatus.FILE_CREATED))
         elif new_mtime != old_mtime:
-            symbols.add(LocalEventSymbol(proj,
+            symbols.put(LocalEventSymbol(proj,
                                          path,
                                          EventStatus.FILE_MODIFIED))
 
     def _knock(self,
                path: str,
-               symbols: t.Set[LocalEventSymbol],
+               symbols: queue.Queue,
                new_files: t.Dict[str, t.Tuple[str, float]],
                depth: int):
 
@@ -261,11 +261,27 @@ class LocalBuffer:
             self._knock_file(path, symbols, new_files, os.stat(path))
 
     def read_events(self):
-        events: t.Set[LocalEventSymbol] = set()
+        """
+
+        :return:
+        """
+        self.run_events()
+        events = set()
+        is_empty = False
+        while not is_empty:
+            try:
+                es = self.buffer_queue.get(timeout=0)
+                events.add(es)
+            except queue.Empty:
+                is_empty = True
+        return events
+
+    def run_events(self):
+        symbols = self.buffer_queue
         new_files: t.Dict[str, t.Tuple[str, float]] = {}
         depth = 0
         try:
-            self._knock(self._root_path, events, new_files, depth)
+            self._knock(self._root_path, symbols, new_files, depth)
         except OSError as e:
             #Todo log 찍어야함
             raise e
@@ -273,14 +289,14 @@ class LocalBuffer:
         deleted_files = self.files.keys() - new_files.keys()
 
         if deleted_files:
-            events |= {LocalEventSymbol(self.files[deleted_file][0],
+            for deleted_file in deleted_files:
+                symbols.put(LocalEventSymbol(self.files[deleted_file][0],
                                         deleted_file,
-                                        EventStatus.FILE_DELETED)
-                       for deleted_file in deleted_files}
+                                        EventStatus.FILE_DELETED))
+
         #Todo file 저장하는거 코드 추
         self.files = new_files
 
-        return events
 
 
 #client connection # POST
@@ -304,7 +320,6 @@ class LocalBuffer:
 
 class RemoteBuffer(WSGIRequestHandler):
 
-    events: t.Set['RemoteEventSymbol'] = set()
     # header()
     # get_data()
     # router 어떻게 시킬지
@@ -313,6 +328,7 @@ class RemoteBuffer(WSGIRequestHandler):
                  request: 'Socket',                                                           # type: ignore
                  client_address: t.Tuple[str, int],
                  server: 'RemoteNotify'):                                                     # type: ignore
+        self.buffer_queue = server.buffer_queue
         super().__init__(request, client_address, server)
 
     @property
@@ -324,23 +340,31 @@ class RemoteBuffer(WSGIRequestHandler):
         """
         return self.headers.get(PROJECT_KEY)
 
-    def read_events(self) -> t.Set[RemoteEventSymbol]:
-        """
-        :return:
-        """
-        cur_events = set()
-        for _ in range(len(self.events)):
-            cur_events.add(self.events.pop())
-
-        return cur_events
+    # def read_events(self) -> t.Set[RemoteEventSymbol]:
+    #     """
+    #     :return:
+    #     """
+    #     events = set()
+    #     is_empty = False
+    #     while not is_empty:
+    #         try:
+    #             es = self.buffer_queue.get(timeout=0)
+    #             events.add(es)
+    #         except queue.Empty:
+    #             is_empty = True
+    #     return events
 
     def run_event(self):
         """
 
         :return:
         """
+        self.server.app = self.connector = self.server.connector(Response)
+        self.environ = self.make_environ()
+        self.buffer_queue.put(RemoteEventSymbol(self.project_name, self.environ, self.connector))
+
         super().run_wsgi()
-        self.events.add(RemoteEventSymbol(self.project_name, self.environ))
+
 
     def parse_request(self) -> bool:
         base_output = super().parse_request()
