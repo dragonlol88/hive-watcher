@@ -5,7 +5,7 @@ from . import HandlerBase
 
 class ChannelCreateHandler(HandlerBase):
 
-    def __init__(self, event: 'Event'): # type: ignore
+    def __init__(self, event: 'Event'):                                                       # type: ignore
         super().__init__(event)
         self.watch = event.watch
         self.client_host = self.event.target
@@ -27,7 +27,7 @@ class ChannelCreateHandler(HandlerBase):
 
 class ChannelDeleteHandler(HandlerBase):
 
-    def __init__(self, event: 'Event'): #type: ignore
+    def __init__(self, event: 'Event'):                                                        # type: ignore
         super().__init__(event)
         self.watch = event.watch
         self.client_host = self.event.target

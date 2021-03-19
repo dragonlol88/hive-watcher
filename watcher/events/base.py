@@ -17,7 +17,7 @@ class EventBase:
                  watch: 'Watch',                                                             # type: ignore
                  symbol: EventSymbol,
                  loop: t.Optional[Loop] = None,
-                 handler_class: t.Optional['Handler'] = None,                                #type: ignore
+                 handler_class: t.Optional['Handler'] = None,                                # type: ignore
                  **kwargs):
 
         self.loop = loop
