@@ -139,9 +139,8 @@ class RemoteEventSymbol(EventSymbol):
             example)
                 0.0.0.0:8080
         """
-        scheme = self.environ.get("wsgi.url_scheme")
-        client_address = self.client_address, self.client_port
-        return scheme + "://" + ":".join(client_address)                                          # type: ignore
+        host, _ = self.client_address.split(":")
+        return host                                        # type: ignore
 
     @property
     def headers(self) -> 'EnvironHeaders':
@@ -158,10 +157,12 @@ class RemoteEventSymbol(EventSymbol):
 
         :return:
         """
-        addr = self.environ.get("REMOTE_ADDR")
+        addr = self.environ.get("Client-Address")
+        scheme = self.environ.get("wsgi.url_scheme")
         if not isinstance(addr, str):
             addr = str(addr)
-        return addr
+        url = f'{scheme}://{addr}'
+        return url
 
     @property
     def client_port(self) -> str:
@@ -169,7 +170,7 @@ class RemoteEventSymbol(EventSymbol):
 
         :return:
         """
-        port = self.environ.get("REMOTE_PORT")
+        _, port = self.client_address.split(":")
         if not isinstance(port, str):
             port = str(port)
 
