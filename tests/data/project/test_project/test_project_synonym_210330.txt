@@ -1,0 +1,22 @@
+A.C.,A.C,AC
+Air Changes per hour,AC/h
+A.E.,A.E,AE
+A.F.,A.F,AF
+Alternative Maritime Power,AMP
+Alarm and monitoring system,A.M.S.,A.M.S,AMS
+A.P.,A.P,AP
+B.C.,B.C,BC
+Brake Horse Power,BHP
+Bow Loading System,BLS
+B.M.,B.M,BM
+Book case,Bookcase
+Book shelf,Book shlef,Bookshelf
+B.T.,B.T,BT
+Bulk head,Bulkhead
+Control Alarm and Monitoring System,CAMS
+Cargo Control Room,C.C.R.,C.C.R,CCR
+C.E.,C.E,CE
+C.H.,C.H,CH
+C.L.,C.L,CL
+C.M.,C.M,CM
+C.O.,C.O,CO
