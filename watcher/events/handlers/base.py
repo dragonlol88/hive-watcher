@@ -1,9 +1,15 @@
+import logging
 import typing as t
+
+from watcher import EventStatus
 from watcher.type import Loop
 
 if t.TYPE_CHECKING:
     from watcher.events import ChannelEventTypes, FileEventTypes
     from watcher.type import Loop
+
+logger = logging.Logger("hive-watcher")
+
 
 class HandlerBase:
 
@@ -63,3 +69,14 @@ class HandlerBase:
         """
         for path in self.watch.paths:
             yield path
+
+    def log_fails(self, file_name: str, event_type, channel: str):
+        """file 이름  event type , channel 실패"""
+        pass
+
+
+    def log_success(self):
+        pass
+
+    event_response = {member.value: member.phase
+                      for member in EventStatus.__members__.values()}
