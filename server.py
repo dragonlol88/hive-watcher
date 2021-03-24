@@ -321,12 +321,12 @@ class HttpRequest:
 
     # HTTP Header
     create_connect_headers = {
-        "Project-Name": 'project1',
+        "Project-Name": 'test_project',
         "Event-Type": '4' # CreateChannel Event type
     }
 
     delete_connect_headers = {
-        "Project-Name": 'project1',
+        "Project-Name": 'test_project',
         "Event-Type": '5' # ChannelDelete Event type
     }
 
@@ -466,6 +466,9 @@ class HiveServer:
 
         finally:
             self.stop()
+
+    def close(self):
+        self.server.shutdown()
 
 if __name__ == '__main__':
     sv = HiveServer(frost_server_address)
