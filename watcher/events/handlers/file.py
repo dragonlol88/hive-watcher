@@ -59,8 +59,6 @@ async def stream(file: str):
     fileio = get_file_io(file)
     buffer = await fileio.open()
     chunk = await buffer.read(READ_SIZE)
-    chunk += chunk
-
     while chunk:
         yield chunk
         chunk = await buffer.read(READ_SIZE)
@@ -131,8 +129,8 @@ class FileHandler(HandlerBase):
         else:
             self.headers.update({
                 "File-Name": file_name,
-                 "Event-Type": value,
-                 "Content-Type": content_type
+                "Event-Type": value,
+                "Content-Type": content_type
                 }
             )
         return self.headers
