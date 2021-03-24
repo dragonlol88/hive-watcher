@@ -47,7 +47,7 @@ class WatcherConnector:
         self._injection_complete.clear()
 
     def __call__(
-            self, environ: "WSGIEnvironment", start_response: "StartResponse"
+            self, environ: "WSGIEnvironment", start_response: "StartResponse"                  # type: ignore
     ) -> t.Iterable[bytes]:
         """Process this response as WSGI application.
         :param environ: the WSGI environment.
