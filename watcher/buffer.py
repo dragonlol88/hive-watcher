@@ -3,6 +3,7 @@ import re
 import http
 import socket
 import queue
+import logging
 import typing as t
 
 from watcher import EventStatus
@@ -16,6 +17,7 @@ from werkzeug.wrappers import Response
 EVENT_TYPE_KEY = 'Event-Type'
 PROJECT_KEY    = 'Project-Name'
 
+logger = logging.Logger("hive-watcher")
 
 class EventSymbol:
 
@@ -299,26 +301,6 @@ class LocalBuffer:
         self.files = new_files
 
 
-
-#client connection # POST
-#{
-#    "project": "",
-#    "event_type":"",
-#    "level": ""
-#}
-
-#client close # DELETE
-#{
-#    "prject": "",
-#    "event_type":"",
-#    "level": ""
-#}
-
-# rfile 읽어오는 stream
-# route 어떻게 시킬까? url,
-#
-
-
 class RemoteBuffer(WSGIRequestHandler):
 
     # header()
@@ -340,20 +322,6 @@ class RemoteBuffer(WSGIRequestHandler):
             Project name
         """
         return self.headers.get(PROJECT_KEY)
-
-    # def read_events(self) -> t.Set[RemoteEventSymbol]:
-    #     """
-    #     :return:
-    #     """
-    #     events = set()
-    #     is_empty = False
-    #     while not is_empty:
-    #         try:
-    #             es = self.buffer_queue.get(timeout=0)
-    #             events.add(es)
-    #         except queue.Empty:
-    #             is_empty = True
-    #     return events
 
     def run_event(self):
         """
