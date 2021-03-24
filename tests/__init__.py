@@ -1,7 +1,6 @@
 import time
 import json
 import socket
-import requests
 import threading
 import http.server
 
@@ -92,11 +91,11 @@ def server_on():
     server = TestServer(server_address)
     url = 'http://127.0.0.1:7777'
     f = open("/Users/sunny/sunny-project/hive/test-config/project2/synonym/test12.txt", 'rb')
-    response = requests.post(url, data=f.read(), headers={"event-type": "file_created", "file-name": 'test12.txt'})
+    # response = requests.post(url, data=f.read(), headers={"event-type": "file_created", "file-name": 'test12.txt'})
 
     while True:
         try:
-            print(response.json())
+            # print(response.json())
             time.sleep(3)
         except KeyboardInterrupt:
             server.join()

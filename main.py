@@ -1,7 +1,8 @@
+import time
 import queue
 import asyncio
 from watcher.watcher import HiveEventEmitter
-
+from watcher.notify import RemoteNotify
 
 import functools
 import contextvars
@@ -11,7 +12,15 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     event_queue = queue.Queue()
     watches = {}
-    emiter = HiveEventEmitter(loop, "../test-config", event_queue, watches, 1, '.*swp|4913|.*~|.*swx:',  loop.create_task)
+    emiter = HiveEventEmitter(loop,
+                              event_queue,
+                              watches,
+                              loop.create_task,
+                              localnotify_root_dir="../test-config",
+                              localnotify_ignore_pattern='.*swp|4913|.*~|.*swx:',
+                              localnotify_proj_depth=1,
+                              remotenotify_host='127.0.0.1',
+                              remotenotify_port=7777)
     emiter.start()
 
     async def timer():
