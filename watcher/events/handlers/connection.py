@@ -8,6 +8,7 @@ if t.TYPE_CHECKING:
     from ..connection import CreateChannelEvent
     from ..connection import DeleteChannelEvent
 
+
 class ChannelCreateHandler(HandlerBase):
 
     def __init__(self, event: 'CreateChannelEvent', **kwargs):
