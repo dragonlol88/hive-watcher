@@ -7,11 +7,19 @@ QUEUE_MAX_SIZE = 4200
 
 
 class EventStatus(IntEnum):
-    FILE_DELETED   = 1
-    FILE_CREATED   = 2
-    FILE_MODIFIED  = 3
-    CREATE_CHANNEL = 4
-    DELETE_CHANNEL = 5
+
+    def __new__(cls, value, phrase):
+        obj = int.__new__(cls, value)
+        obj._value_ = value
+
+        obj.phrase = phrase
+        return obj
+
+    FILE_DELETED   = (1, 'File Deleted')
+    FILE_CREATED   = (2, 'File Created')
+    FILE_MODIFIED  = (3, 'File Modified')
+    CREATE_CHANNEL = (4, 'Channel Created')
+    DELETE_CHANNEL = (5, 'Channel Deleted')
 
 
 class EventQueue(queue.Queue):

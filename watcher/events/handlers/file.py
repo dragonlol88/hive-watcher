@@ -21,6 +21,7 @@ if t.TYPE_CHECKING:
     from ..file import FileCreatedEvent
     from ..file import FileModifiedEvent
 
+
 class AsyncFileIO(aiofiles.base.AiofilesContextManager):
 
     def __init__(self, coro):
@@ -64,8 +65,6 @@ async def stream(file: str):
         chunk = await buffer.read(READ_SIZE)
 
     await fileio.close()
-
-
 
 
 class FileHandler(HandlerBase):
