@@ -10,6 +10,7 @@ if t.TYPE_CHECKING:
     from watcher.buffer import EventSymbol
     from .handlers import FileHandlerTypes, ChannelHandlerTypes
 
+
 class EventBase:
 
     default_max_worker = 4
