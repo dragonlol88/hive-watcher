@@ -78,5 +78,5 @@ class HandlerBase:
     def log_success(self):
         pass
 
-    event_response = {member.value: member.phase
+    event_response = {member.value: member.phrase
                       for member in EventStatus.__members__.values()}
