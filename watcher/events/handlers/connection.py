@@ -1,3 +1,4 @@
+import os
 import typing as t
 
 from . import HandlerBase
@@ -12,14 +13,14 @@ class ChannelCreateHandler(HandlerBase):
     def __init__(self, event: 'CreateChannelEvent', **kwargs):
         super().__init__(event)
         self.connector = event.connector
-        self.client_host = event.target
+        self.client_address = event.target
 
     async def handle(self) -> None:
         """
 
         :return:
         """
-        headers: t.Dict[str,str] = {}
+        headers: t.Dict[str, str] = {}
         lens = []
         paths = []
         data = b''
@@ -46,12 +47,11 @@ class ChannelCreateHandler(HandlerBase):
             return
 
         positions = ','.join([str(len) for len in lens])
-        path_to_str = ','.join(paths)
+        path_to_str = ','.join([os.path.basename(path) for path in paths])
         headers.update({
                     "Files-Position": positions,
                     "File-Name": path_to_str
                     })
-
         self.connector.inject_data(data, header=headers)
 
         return
@@ -62,7 +62,7 @@ class ChannelCreateHandler(HandlerBase):
         :return:
         """
 
-        self.watch.add_channel(self.client_host)
+        self.watch.add_channel(self.client_address)
         return response
 
 
@@ -71,15 +71,15 @@ class ChannelDeleteHandler(HandlerBase):
     def __init__(self, event: 'DeleteChannelEvent'):
         super().__init__(event)
         self.watch = event.watch
-        self.client_host = self.event.target
+        self.client_address = self.event.target
 
     def event_action(self, response: t.Any) -> t.Any:
         """
         Method to handle event synchronously
         :return:
         """
+        self.watch.discard_channel(self.client_address)
         return response
 
     async def handle(self) -> None:
-
-        self.watch.discard_channel(self.client_host)
+        pass

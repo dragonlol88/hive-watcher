@@ -157,7 +157,7 @@ class RemoteEventSymbol(EventSymbol):
 
         :return:
         """
-        addr = self.environ.get("Client-Address")
+        addr = self.environ.get("HTTP_CLIENT_ADDRESS")
         scheme = self.environ.get("wsgi.url_scheme")
         if not isinstance(addr, str):
             addr = str(addr)

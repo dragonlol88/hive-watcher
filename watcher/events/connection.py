@@ -23,5 +23,5 @@ class CreateChannelEvent(ChannelEvent):
 
 
 class DeleteChannelEvent(ChannelEvent):
-    event_type = EventStatus.FILE_DELETED
+    event_type = EventStatus.DELETE_CHANNEL
     handler_class = h.ChannelDeleteHandler

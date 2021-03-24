@@ -34,7 +34,7 @@ class EventBase:
             self._target = symbol.path
 
         elif isinstance(symbol, RemoteEventSymbol):
-            self._target = symbol.client_host
+            self._target = symbol.client_address
 
         if handler_class:
             self.handler_class = handler_class
