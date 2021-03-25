@@ -6,22 +6,15 @@ import threading
 import typing as t
 import http.server
 import http.client
+from watcher import EventStatus
 from enum import IntEnum
 from werkzeug.wsgi import LimitedStream
 from werkzeug.serving import DechunkedInput
 
-frost_server_address = ('127.0.0.1', 8132)
-blaze_server_address = ('127.0.0.1', 8888)
-watcher_server_address = ('127.0.0.1', 7777)
+
 METHODS = ('POST', 'DELETE')
 scheme = 'http'
 
-class EventStatus(IntEnum):
-    FILE_DELETED   = 1
-    FILE_CREATED   = 2
-    FILE_MODIFIED  = 3
-    CREATE_CHANNEL = 4
-    DELETE_CHANNEL = 5
 
 def get_response(buffer: t.Union[io.IOBase, socket.socket], header: t.Dict[str, str]) -> 'Response':
     """
@@ -435,9 +428,10 @@ class HiveServer:
 
     def __init__(self,
                  server_address,
+                 watcher_server_address,
                  handler=TestHandler,
                  requester=HttpRequest,
-                 watcher_server_address=watcher_server_address):
+                 ):
 
         self.server = HTTPServer(server_address, handler)
         self.is_should_keep_running = threading.Event()

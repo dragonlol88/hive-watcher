@@ -7,9 +7,8 @@ from watcher.watcher import HiveEventEmitter
 
 
 def run_test_server(server_address, watcher_address):
-    sv = HiveServer(server_address,
-                           watcher_server_address=watcher_address)
 
+    sv = HiveServer(server_address, watcher_address)
     t = threading.Thread(target=sv.serve, args=(), daemon=True)
     t.start()
     return sv
