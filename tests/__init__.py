@@ -1,105 +1,71 @@
-import time
-import json
-import socket
+import queue
+import asyncio
 import threading
-import http.server
 
-server_address = ('127.0.0.1', 7777)
+from watcher.server import HiveServer
+from watcher.watcher import HiveEventEmitter
 
-class TestHandler(http.server.BaseHTTPRequestHandler):
 
-    def __init__(self, request, client_address, server):
-        super().__init__(request, client_address, server)
+def run_test_server(server_address, watcher_address):
+    sv = HiveServer(server_address,
+                           watcher_server_address=watcher_address)
 
-    def run_event(self):
+    t = threading.Thread(target=sv.serve, args=(), daemon=True)
+    t.start()
+    return sv
 
-        self.send_response(http.server.HTTPStatus.OK)
-        body = 'hello world'
-        length = self.headers['Content-Length']
+def run_test_watcher(root_dir, ignore_pattern, proj_depth, host, port):
+    loop = asyncio.get_event_loop()
+    event_queue = queue.Queue()
+    watches = {}
+    emitter = HiveEventEmitter(loop,
+                              event_queue,
+                              watches,
+                              loop.create_task,
+                              localnotify_root_dir=root_dir,
+                              localnotify_ignore_pattern=ignore_pattern,
+                              localnotify_proj_depth=proj_depth,
+                              remotenotify_host=host,
+                              remotenotify_port=port)
+    emitter.start()
 
-        #content length 와 맞아야됨
-        data = self.rfile.read(int(length))
-        file_name = self.headers['File-Name']
-        event_type = self.headers['Event-Type']
+    class WatcherThread(threading.Thread):
 
-        if event_type and event_type == 'file_deleted':
-            body = 'file_deleted'
+        def __init__(self, emitter, loop, event_queue):
+            super().__init__()
+            self.emitter = emitter
+            self.loop = loop
+            self.event_queue = event_queue
+            self.events = queue.Queue()
+            self._complete = threading.Event()
+            self.setDaemon(True)
 
-        elif event_type and event_type != 'file_deleted':
+        async def on_start(self):
+            self._complete.clear()
+            is_complete = self._complete.is_set()
+            while not is_complete:
+                try:
+                    task, event = event_queue.get()
+                    self.queue_event(event)
+                except queue.Empty:
+                    pass
 
-            with open("./{}".format(file_name), 'wb') as f:
-                f.write(data)
+                await task
+                is_complete = self._complete.is_set()
 
-            if event_type == 'file_created':
-                body = 'file_created'
+        def get_event(self, timeout=5):
+            return self.events.get(timeout=timeout)
 
-            elif event_type == 'file_modified':
-                body = 'file_modified'
+        def queue_event(self, event):
+            self.events.put(event)
 
-        resp = {
-            "status": "success",
-            "event-type": body
-            }
-        resp = json.dumps(resp).encode()
+        def close(self):
+            self._complete.set()
 
-        self.send_header('Content-Type', "application/json; charset=utf-8")
-        self.send_header('Content-Length', str(len(resp)))
-        self.end_headers()
-        self.wfile.flush()
-        self.wfile.write(resp)
+        def run(self):
+            self.loop.run_until_complete(self.on_start())
 
-    def handle_one_request(self) -> None:
+    wt = WatcherThread(emitter, loop, event_queue)
+    wt.start()
 
-        try:
-            self.raw_requestline = self.rfile.readline(65537)
-            if not self.raw_requestline:
-                self.close_connection = True
-                return
-            if self.parse_request():
-                print(self.headers)
-                self.run_event()
-        except (ConnectionError, socket.timeout) as e:
-            self._connection_dropped(e)
-
-        except Exception as e:
-            self.log_error("error: %s, ", e.__class__.__name__, e.args[0])
-
-    def _connection_dropped(self):
-        pass
-
-class TestServer(threading.Thread):
-
-    def __init__(self, server_address, handler=TestHandler):
-        super(TestServer, self).__init__()
-        self.server = http.server.HTTPServer(server_address, handler)
-        self.start()
-
-    def on_thread_start(self):
-        pass
-
-    def on_thread_stop(self):
-        pass
-
-    def start(self):
-        self.on_thread_start()
-        super(TestServer, self).start()
-
-    def run(self):
-        self.server.serve_forever()
-
-def server_on():
-    server = TestServer(server_address)
-    url = 'http://127.0.0.1:7777'
-    f = open("/Users/sunny/sunny-project/hive/test-config/project2/synonym/test12.txt", 'rb')
-    # response = requests.post(url, data=f.read(), headers={"event-type": "file_created", "file-name": 'test12.txt'})
-
-    while True:
-        try:
-            # print(response.json())
-            time.sleep(3)
-        except KeyboardInterrupt:
-            server.join()
-            break
-
-if __name__ == '__main__':
-    server_on()
+    return wt
