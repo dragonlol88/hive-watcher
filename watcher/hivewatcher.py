@@ -3,8 +3,8 @@ import threading
 import functools
 import typing as t
 
-from watcher import BaseThread
-from watcher import EventQueue
+from watcher.common import BaseThread
+from watcher.common import EventQueue
 
 from .notify import Notify
 from .events import HIVE_EVENTS
@@ -299,51 +299,54 @@ class HiveEventEmitter(EventEmitter):
 
         self.notify = Notify(**self.params)
 
-#
-# class HiveWatcher:
-#
-#     def __init__(self,
-#                  target_dir,
-#                  server_ip='localhost',
-#                  server_port=8080,
-#                  queue_timeout=None):
-#
-#
-#         lock = threading.RLock()
-#         event_queue = EventQueue()
-#
-#         self.target_dir = target_dir
-#         self._lock = lock
-#         self._event_queue = event_queue
-#         self._watches = {}  # key: project, watch
-#         self._timeout = queue_timeout or DEFAULT_QUEUE_TIMEOUT
-#
-#         self.init_watch()
-#
-#     def run(self):
-#         pass
-#
-#     def add_watch(self, event_queue, timeout):
-#         event = event_queue.get(block=True, timeout=timeout)
-#         with self._lock:
-#             pass
-#
-#     def init_watch(self):
-#         #dir 평가 어떻게??
-#         walk = os.walk(self.target_dir)
-#         for top, subs, files in walk:
-#             if top == self.target_dir:
-#                 self._watches = {sub: Watch(sub) for sub in subs}
-#                 continue
-#             proj = os.path.basename(top)
-#             watch = self._watches[proj]
-#             list(map(lambda file: watch.add_path(file), files))
-#
-#     @property
-#     def event_queue(self):
-#         return self._event_queue
-#
-#     @property
-#     def timeout(self):
-#         return self._timeout
-#
+
+class HiveWatcher:
+
+    def __init__(self,
+                 watch_store_dir,
+                 remotenotify_host,
+                 remotenotify_port,
+                 localnotify_root_dir,
+                 localnotify_ignore_pattern,
+                 localnotify_proj_depth=1,
+                 ):
+
+
+        lock = threading.RLock()
+        event_queue = EventQueue()
+
+        self._lock = lock
+        self._event_queue = event_queue
+        self._watches = {}  # key: project, watch
+
+        self.init_watch()
+
+        self.remote
+
+    def run(self):
+        pass
+
+    def add_watch(self, event_queue, timeout):
+        event = event_queue.get(block=True, timeout=timeout)
+        with self._lock:
+            pass
+
+    def init_watch(self):
+        #dir 평가 어떻게??
+        walk = os.walk(self.target_dir)
+        for top, subs, files in walk:
+            if top == self.target_dir:
+                self._watches = {sub: Watch(sub) for sub in subs}
+                continue
+            proj = os.path.basename(top)
+            watch = self._watches[proj]
+            list(map(lambda file: watch.add_path(file), files))
+
+    @property
+    def event_queue(self):
+        return self._event_queue
+
+    @property
+    def timeout(self):
+        return self._timeout
+

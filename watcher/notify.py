@@ -10,7 +10,7 @@ from .buffer import LocalBuffer
 from .buffer import RemoteBuffer
 from .buffer import EventSymbol
 
-from watcher import BaseThread, EventQueue
+from watcher.common import BaseThread, EventQueue
 
 
 if hasattr(selectors, 'PollSelector'):

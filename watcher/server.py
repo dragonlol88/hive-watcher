@@ -6,7 +6,7 @@ import threading
 import typing as t
 import http.server
 import http.client
-from watcher import EventStatus
+from watcher.common import EventStatus
 from enum import IntEnum
 from werkzeug.wsgi import LimitedStream
 from werkzeug.serving import DechunkedInput                                                    #type: ignore

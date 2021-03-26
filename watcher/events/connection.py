@@ -3,7 +3,7 @@ import typing as t
 import watcher.events.handlers as h
 
 from .base import EventBase
-from watcher import EventStatus
+from watcher.common import EventStatus
 
 class ChannelEvent(EventBase):
 

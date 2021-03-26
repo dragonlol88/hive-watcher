@@ -6,7 +6,7 @@ import queue
 import logging
 import typing as t
 
-from watcher import EventStatus
+from watcher.common import EventStatus
 from watcher.exceptions import FilePaserError
 
 from werkzeug.wrappers import Request as WSGIRequest

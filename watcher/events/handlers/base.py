@@ -1,7 +1,7 @@
 import logging
 import typing as t
 
-from watcher import EventStatus
+from watcher.common import EventStatus
 from watcher.type import Loop
 
 if t.TYPE_CHECKING:

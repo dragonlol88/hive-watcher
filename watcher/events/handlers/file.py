@@ -6,7 +6,7 @@ import aiofiles
 from . import HandlerBase
 from . import Session
 
-from watcher import EventStatus
+from watcher.common import EventStatus
 
 _open = functools.partial(
             aiofiles.threadpool._open,                                                        # type: ignore
