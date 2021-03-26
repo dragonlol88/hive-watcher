@@ -167,7 +167,7 @@ class EventEmitter(BaseThread):
         """
         return self._timeout
 
-    def queue_event(self, task: 'Task'):
+    def queue_event(self, item: t.Tuple['Task', 'EventBase']):
         """
         Queues a single event.
 
@@ -175,7 +175,7 @@ class EventEmitter(BaseThread):
             Event to be queued.
             event: <class:watcher.events.*>
         """
-        self._event_queue.put(task)
+        self._event_queue.put(item)
 
     def queue_events(self, timeout: float):
         """Override this method to populate the event queue with events
@@ -192,6 +192,7 @@ class EventEmitter(BaseThread):
         """
         while self.should_keep_running():
             self.queue_events(self.timeout)
+
 
 class HiveEventEmitter(EventEmitter):
 
@@ -282,7 +283,7 @@ class HiveEventEmitter(EventEmitter):
                     coroutine_event: t.Coroutine = event()
                     task = self._task_factory(coroutine_event)
 
-                    self.queue_event(task)
+                    self.queue_event((task, event))
                 except Exception as e:
                     if isinstance(e, KeyError):
                         raise e
