@@ -6,7 +6,7 @@ from watcher.buffer import LocalEventSymbol
 
 if t.TYPE_CHECKING:
     from watcher.type import Loop
-    from watcher.watcher import Watch
+    from watcher.hivewatcher import Watch
     from watcher.buffer import EventSymbol
     from .handlers import FileHandlerTypes, ChannelHandlerTypes
 
