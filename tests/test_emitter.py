@@ -100,4 +100,6 @@ def test_deleted_channel():
     assert symbol.event_type == EventStatus.DELETE_CHANNEL
 
 
-
+def test_close_watcher():
+    global watcher
+    watcher.close()
