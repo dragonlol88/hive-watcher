@@ -1,5 +1,5 @@
 from .base import EventBase
-from watcher import EventStatus
+from watcher.common import EventStatus
 import watcher.events.handlers as h
 
 
