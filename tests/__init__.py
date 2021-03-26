@@ -3,7 +3,7 @@ import asyncio
 import threading
 
 from watcher.server import HiveServer
-from watcher.watcher import HiveEventEmitter
+from watcher.hivewatcher import HiveEventEmitter
 
 
 def run_test_server(server_address, watcher_address):
