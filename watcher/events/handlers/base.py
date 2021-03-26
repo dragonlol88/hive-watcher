@@ -78,5 +78,5 @@ class HandlerBase:
     def log_success(self):
         pass
 
-    event_response = {member.value: member.phrase
+    event_response = {member.value: member.phrase                                              #type: ignore
                       for member in EventStatus.__members__.values()}
