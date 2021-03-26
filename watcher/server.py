@@ -198,7 +198,7 @@ class Response:
 
     encoding_error = 'replace'
     charset = 'utf-8'
-    default_directory = '/tmp/watcher'
+    default_directory = './watcher_directory'
 
     def __init__(self, buffer: io.IOBase, headers: t.Dict[str,str]):
         self.buffer = buffer

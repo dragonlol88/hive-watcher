@@ -10,7 +10,7 @@ from tests import run_test_watcher, run_test_server
 
 watcher = None
 client  = None
-STORED_DIR = '/tmp/watcher'
+STORED_DIR = './watcher_directory'
 
 
 @pytest.fixture

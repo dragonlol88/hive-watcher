@@ -43,7 +43,7 @@ def event_num():
 
 @pytest.fixture
 def stored_directory():
-    return '/tmp/watcher'
+    return './watcher_directory'
 
 
 @pytest.fixture
