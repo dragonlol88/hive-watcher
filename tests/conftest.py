@@ -3,12 +3,12 @@ import pytest
 
 @pytest.fixture
 def watcher_address():
-    return ('127.0.0.1', 7777)
+    return ('0.0.0.0', 7777)
 
 
 @pytest.fixture
 def client_address():
-    return ('127.0.0.1', 6666)
+    return ('0.0.0.0', 6666)
 
 
 @pytest.fixture
@@ -28,7 +28,7 @@ def proj_depth():
 
 @pytest.fixture
 def host():
-    return '127.0.0.1'
+    return '0.0.0.0'
 
 
 @pytest.fixture
