@@ -9,14 +9,14 @@ import http.client
 from watcher import EventStatus
 from enum import IntEnum
 from werkzeug.wsgi import LimitedStream
-from werkzeug.serving import DechunkedInput
+from werkzeug.serving import DechunkedInput                                                    #type: ignore
 
 
 METHODS = ('POST', 'DELETE')
 scheme = 'http'
 
 
-def get_response(buffer: t.Union[io.IOBase, socket.socket], header: t.Dict[str, str]) -> 'Response':
+def get_response(buffer: io.IOBase, header: t.Dict[str, str]) -> 'Response':
     """
 
     :param buffer:
@@ -29,7 +29,7 @@ def get_response(buffer: t.Union[io.IOBase, socket.socket], header: t.Dict[str, 
         buffer = buffer.makefile('rb', io.DEFAULT_BUFFER_SIZE)
     return Response(buffer, header)
 
-
+@t.no_type_check
 def get_content_length(headers: t.Dict[str, str]) -> t.Optional[int]:
     """
 
@@ -40,7 +40,7 @@ def get_content_length(headers: t.Dict[str, str]) -> t.Optional[int]:
         return int(headers.get('Content-Length'))
     return
 
-
+@t.no_type_check
 def get_stream(stream: t.BinaryIO, headers: t.Dict[str, str], safe_fallback: bool = True) -> t.BinaryIO:
     """
 
@@ -71,7 +71,7 @@ class HTTPServer(http.server.HTTPServer):
 class TestHandler(http.server.BaseHTTPRequestHandler):
 
     # HTTP headers
-    headers: t.Dict[str, str]
+    headers: http.client.HTTPMessage
 
     # response
     body = {
@@ -189,12 +189,9 @@ class TestHandler(http.server.BaseHTTPRequestHandler):
             if self.parse_request():
                 self.run_event()
         except (ConnectionError, socket.timeout) as e:
-            self._connection_dropped(e)
+            self.connection_dropped(e)
         except Exception as e:
             self.log_error("error: %s, ", e.__class__.__name__, e.args[0])
-
-    def _connection_dropped(self):
-        pass
 
 
 class Response:
@@ -203,7 +200,7 @@ class Response:
     charset = 'utf-8'
     default_directory = '/tmp/watcher'
 
-    def __init__(self, buffer: t.BinaryIO, headers: t.Dict[str,str]):
+    def __init__(self, buffer: io.IOBase, headers: t.Dict[str,str]):
         self.buffer = buffer
         self.headers = headers
 
@@ -223,7 +220,7 @@ class Response:
         stream = self.stream
         rv = stream.read()
         if as_text:
-            rv = rv.decode(self.charset, self.encoding_error)
+            rv = rv.decode(self.charset, self.encoding_error)                                 # type: ignore
         return rv
 
     def get_file_names(self, headers: t.Dict[str, str]) -> t.List[str]:
@@ -260,7 +257,7 @@ class Response:
 
         return list(args)
 
-    def save(self, stream: t.BinaryIO, file_name: str, directory: t.Optional[str]=None):
+    def save(self, stream: bytes, file_name: str, directory: t.Optional[str] = None):
         """
         Method to save bytes to file
 
@@ -345,8 +342,7 @@ class HttpRequest:
             source_address = f"{host}:{port}"
         return source_address
 
-
-    def update_header(self, event_type: IntEnum):
+    def update_header(self, event_type: EventStatus):
         if event_type == event_type.DELETE_CHANNEL:
             headers = self.delete_connect_headers.copy()
         else:
@@ -356,8 +352,7 @@ class HttpRequest:
 
         return headers
 
-
-    def request(self, method: str, event_type: 'IntEnum')  -> 'http.client.HTTPResponse':
+    def request(self, method: str, event_type: EventStatus) -> 'http.client.HTTPResponse':
         """
 
         :param method:
@@ -463,7 +458,3 @@ class HiveServer:
 
     def close(self):
         self.server.shutdown()
-
-if __name__ == '__main__':
-    sv = HiveServer(frost_server_address)
-    sv.serve()
