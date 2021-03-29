@@ -1,9 +1,16 @@
+import os
 import queue
 import threading
+
+import asyncio
+import typing as t
 from enum import IntEnum
+from .wrapper.stream import get_file_io
+from .wrapper.stream import AsyncJson
 
 DEFAULT_QUEUE_TIMEOUT = 1
 QUEUE_MAX_SIZE = 4200
+WATCH_STORE_KEY = ['paths', 'channels']
 
 
 class EventStatus(IntEnum):
@@ -73,3 +80,83 @@ class BaseThread(threading.Thread):
     def start(self) -> None:
         self.on_thread_start()
         threading.Thread.start(self)
+
+
+class WatchIO:
+
+    def __init__(self, watch_path: str, watches: t.Dict[str, t.Any]):
+
+        self.watches = watches
+        self.watch_path = watch_path
+
+    async def record(self):
+        """
+        Record watch information in json formation.
+        """
+
+        watches = self.watches
+        watch_dic = {}
+
+        for key, watch in watches.items():
+            watch_dic[key] = {}
+            async with watch.lock:
+                for store_key in WATCH_STORE_KEY:
+                    value = getattr(watch, store_key)
+                    if isinstance(value, set):
+                        value = list(value)
+                    watch_dic[key][store_key] = value
+                await asyncio.sleep(0.1)
+
+        await self.dump_to_json(watch_dic)
+
+    @t.no_type_check
+    async def load(self, watch_cls, loop) -> None:
+        """
+        Transfer data from json file to Watch object.
+        :param watch_cls:
+                watch class
+        :param loop:
+                Event loop
+        """
+        json_data = await self.load_to_json()
+        for key, data in json_data.items():
+            watch = watch_cls(key, loop)
+            for store_key in WATCH_STORE_KEY:
+                value = set(data[store_key])
+                setattr(watch, store_key, value)
+            self.watches[key] = watch
+
+    async def dump_to_json(self, data: t.Dict[str, t.Dict[str, t.Iterable]]) -> None:
+        """
+
+        :param data:
+        :return:
+        """
+        json = AsyncJson()
+        async with get_file_io(self.watch_path, 'w') as af:
+            await json.dump(data, af)
+
+    async def load_to_json(self) -> t.Dict[str, t.Dict[str, t.Iterable]]:
+        """
+        Load data from json file.
+        :return:
+            Dictionary object. key is project.
+        """
+        json = AsyncJson()
+        async with get_file_io(self.watch_path, 'r') as af:
+            data = await json.load(af)
+        return data
+
+
+
+
+
+
+
+
+
+
+
+
+
+
