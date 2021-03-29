@@ -6,12 +6,8 @@ import aiofiles
 from . import HandlerBase
 from . import Session
 
-from watcher.common import EventStatus
+from watcher.common import EventStatus, get_file_io
 
-_open = functools.partial(
-            aiofiles.threadpool._open,                                                        # type: ignore
-            mode='rb'
-        )
 
 READ_SIZE = 64 * 1024
 EVENT_SLEEP_TIME = 1e-5
@@ -22,49 +18,25 @@ if t.TYPE_CHECKING:
     from ..file import FileModifiedEvent
 
 
-class AsyncFileIO(aiofiles.base.AiofilesContextManager):
-
-    def __init__(self, coro):
-        super(AsyncFileIO, self).__init__(coro)
-
-    @t.no_type_check
-    async def open(self):
-        self._obj = await self._coro
-        return self._obj
-
-    @t.no_type_check
-    async def close(self):
-        await self._obj.close()
-        self._obj = None
-
-
-def get_file_io(file_name: str) -> AsyncFileIO:
-    """
-
-    :param file_name:
-    :return:
-    """
-
-    return AsyncFileIO(_open(file_name))
-
-
-async def stream(file: str):
+async def stream(file: str, mode: str = 'rb'):
     """
     Coroutine to generate file byte stream for massive file transfer.
 
     :param file:
         file name will be called
+    :param mode:
+        file mode
 
     """
 
-    fileio = get_file_io(file)
-    buffer = await fileio.open()
+    file_io = get_file_io(file, mode)
+    buffer = await file_io.open()
     chunk = await buffer.read(READ_SIZE)
     while chunk:
         yield chunk
         chunk = await buffer.read(READ_SIZE)
 
-    await fileio.close()
+    await file_io.close()
 
 
 class FileHandler(HandlerBase):
