@@ -70,6 +70,10 @@ class Notify:
 
         return [symbol for symbol in symbols if isinstance(symbol, EventSymbol)]
 
+    def stop(self):
+
+        for notify in self.notifies:
+            notify.stop()
 
 class LocalNotify(BaseThread):
     """
