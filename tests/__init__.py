@@ -13,6 +13,7 @@ def run_test_server(server_address, watcher_address):
     t.start()
     return sv
 
+
 def run_test_watcher(root_dir, ignore_pattern, proj_depth, host, port):
     loop = asyncio.get_event_loop()
     event_queue = queue.Queue()
