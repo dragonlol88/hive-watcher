@@ -1,12 +1,11 @@
 import os
 import typing as t
-import functools
-import aiofiles
 
 from . import HandlerBase
 from . import Session
 
-from watcher.common import EventStatus, get_file_io
+from watcher.common import EventStatus
+from watcher.wrapper.stream import get_file_io
 
 
 READ_SIZE = 64 * 1024
