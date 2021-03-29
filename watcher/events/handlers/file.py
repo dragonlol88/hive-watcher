@@ -5,37 +5,14 @@ from . import HandlerBase
 from . import Session
 
 from watcher.common import EventStatus
-from watcher.wrapper.stream import get_file_io
+from watcher.wrapper.stream import stream
 
-
-READ_SIZE = 64 * 1024
 EVENT_SLEEP_TIME = 1e-5
 
 if t.TYPE_CHECKING:
     from ..file import FileDeletedEvent
     from ..file import FileCreatedEvent
     from ..file import FileModifiedEvent
-
-
-async def stream(file: str, mode: str = 'rb'):
-    """
-    Coroutine to generate file byte stream for massive file transfer.
-
-    :param file:
-        file name will be called
-    :param mode:
-        file mode
-
-    """
-
-    file_io = get_file_io(file, mode)
-    buffer = await file_io.open()
-    chunk = await buffer.read(READ_SIZE)
-    while chunk:
-        yield chunk
-        chunk = await buffer.read(READ_SIZE)
-
-    await file_io.close()
 
 
 class FileHandler(HandlerBase):
