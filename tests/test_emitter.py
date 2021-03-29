@@ -4,7 +4,7 @@ import queue
 import shutil
 import pytest
 
-from watcher import EventStatus
+from watcher.common import EventStatus
 from tests import run_test_watcher, run_test_server
 
 
@@ -67,7 +67,7 @@ def test_channel_created(
 ):
     global watcher
     global client
-    sleep_time = 5
+    sleep_time = 2
     client = get_client(client_address, watcher_address)
     time.sleep(sleep_time)
     entries = get_entries(stored_directory)
