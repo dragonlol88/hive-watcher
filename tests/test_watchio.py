@@ -7,9 +7,9 @@ from watcher.hivewatcher import Watch
 
 loop = asyncio.get_event_loop()
 
+
 @pytest.fixture
 def watches():
-
 
     watch1 = Watch('project1', loop)
     watch1.add_path("test1_ver1.txt")
@@ -26,6 +26,7 @@ def watches():
     watches = {"project1": watch1, "project2": watch2}
     return watches
 
+
 @pytest.fixture
 def watch_path():
     return "./watch.json"
@@ -35,17 +36,19 @@ async def record(watch_path, watches):
     wio = WatchIO(watch_path, watches)
     await wio.record()
 
+
 async def load(watch_path, watch_cls):
     watches = {}
     wio = WatchIO(watch_path, watches)
     await wio.load(watch_cls, loop)
     return wio.watches
 
+
 def test_watchio_record(
         watches, watch_path
 ):
 
-    data = None
+    data = {}
 
     async def main():
         nonlocal data
@@ -54,6 +57,7 @@ def test_watchio_record(
 
     asyncio.run(main())
     os.remove(watch_path)
+
     assert data['project1'].key == watches['project1'].key
     assert data['project1'].paths == watches['project1'].paths
     assert data['project1'].channels == watches['project1'].channels
