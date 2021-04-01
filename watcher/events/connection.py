@@ -16,6 +16,10 @@ class ChannelEvent(EventBase):
         self.connector = symbol.connector
         super().__init__(watch, symbol, loop, handler_class, **kwargs)
 
+    @property
+    def target(self):
+        return self.symbol.client_address
+
 
 class CreateChannelEvent(ChannelEvent):
     event_type = EventStatus.CREATE_CHANNEL

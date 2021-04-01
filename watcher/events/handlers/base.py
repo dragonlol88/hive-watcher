@@ -69,3 +69,12 @@ class HandlerBase:
         """
         for path in self.watch.paths:
             yield path
+
+    def failure_logs(self):
+        pass
+
+    def success_logs(self):
+        pass
+
+    event_response = {member.value: member.phrase  # type: ignore
+                      for member in EventStatus.__members__.values()}

@@ -98,7 +98,6 @@ class FileHandler(HandlerBase):
         return response
 
 
-
 class FileCreatedHandler(FileHandler):
     method = 'POST'
 
