@@ -16,7 +16,6 @@ if t.TYPE_CHECKING:
 
 
 class FileHandler(HandlerBase):
-
     method = 'POST'
 
     def __init__(self,
@@ -26,7 +25,6 @@ class FileHandler(HandlerBase):
                  **kwargs):
 
         super().__init__(event)
-
 
         self.file = self.event.target
         self.headers = self.update_headers(self.file)
@@ -38,7 +36,6 @@ class FileHandler(HandlerBase):
 
         :return:
         """
-
         return stream(self.file)
 
     @property
@@ -57,31 +54,40 @@ class FileHandler(HandlerBase):
 
         self.headers: t.Dict[str, str] = {}
         file_name = os.path.basename(file)
+        event_type_num = self.event_type.value
 
-        try:
-            value = self.event_type.value
-            if not isinstance(value, str):
-                value = str(value)
-            if self.event_type in (EventStatus.FILE_CREATED,
-                                   EventStatus.FILE_MODIFIED,
-                                   EventStatus.FILE_DELETED):
-                content_type = 'application/octet-stream'
-            else:
-                raise ValueError
-
-        except (AttributeError, ValueError) as e:
-            # log
-            raise e
-
+        if not isinstance(event_type_num, str):
+            event_type_num = str(event_type_num)
+        if self.event_type in (EventStatus.FILE_CREATED,
+                               EventStatus.FILE_MODIFIED,
+                               EventStatus.FILE_DELETED):
+            content_type = 'application/octet-stream'
         else:
-            self.headers.update({
-                "File-Name": file_name,
-                "Event-Type": value,
-                "Content-Type": content_type
-                }
-            )
+            raise ValueError("%s not supported event" % (repr(self.event_type)))
+
+        self.headers.update({
+            "File-Name": file_name,
+            "Event-Type": event_type_num,
+            "Content-Type": content_type
+        }
+        )
         return self.headers
 
+    async def handle(self):
+
+        responses = []
+        method = self.method
+
+        async for url in self.channels:
+            response = await self.session.request(
+                method,
+                url,
+                headers=self.headers,
+                data=self.data,
+                body=self.body)
+            responses.append(response)
+        await self.session.close()
+        return responses
 
     def event_action(self, response):
         """
@@ -91,30 +97,9 @@ class FileHandler(HandlerBase):
         """
         return response
 
-    async def handle(self):
-        responses = []
-        method = self.method
-        try:
-            async for url in self.channels:
-                response = await self.session.request(
-                                        method,
-                                        url,
-                                        headers=self.headers,
-                                        data=self.data,
-                                        body=self.body)
-                responses.append(response)
-        except Exception as e:
-            raise e
-
-        finally:
-
-            await self.session.close()
-
-        return responses
 
 
 class FileCreatedHandler(FileHandler):
-
     method = 'POST'
 
     def event_action(self, response: t.Any) -> t.Any:
@@ -123,7 +108,6 @@ class FileCreatedHandler(FileHandler):
 
 
 class FileDeletedHandler(FileHandler):
-
     method = "POST"
 
     @property
@@ -132,10 +116,8 @@ class FileDeletedHandler(FileHandler):
 
     def event_action(self, response):
         self.watch.discard_path(self.event.target)
-
         return response
 
 
 class FileModifiedHandler(FileHandler):
-
     method = 'POST'

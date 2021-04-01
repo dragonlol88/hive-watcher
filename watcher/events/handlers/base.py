@@ -13,7 +13,7 @@ logger = logging.Logger("hive-watcher")
 
 class HandlerBase:
 
-    # Http Rquest method
+    # Http Request method
     method = 'POST'
 
     def __init__(self, event: t.Union['ChannelEventTypes', 'FileEventTypes']):
@@ -69,14 +69,3 @@ class HandlerBase:
         """
         for path in self.watch.paths:
             yield path
-
-    def log_fails(self, file_name: str, event_type, channel: str):
-        """file 이름  event type , channel 실패"""
-        pass
-
-
-    def log_success(self):
-        pass
-
-    event_response = {member.value: member.phrase                                              #type: ignore
-                      for member in EventStatus.__members__.values()}

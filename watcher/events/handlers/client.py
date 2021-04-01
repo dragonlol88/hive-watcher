@@ -30,23 +30,18 @@ class Session:
         self.read_timeout = read_timeout or 300
         self.keepalive_timeout = keepalive_timeout
         self.total_connections = total_connections
-
         self.params = kwargs
         self.use_dns_cache = self.params.get("use_dns_cache", True)
         self.auto_decompress = self.params.get('auto_decompress', True)
-
 
         if http_auth is not None:
             if isinstance(http_auth, (tuple, list)):
                 http_auth = ":".join(http_auth)
             headers.update(urllib3.make_headers(basic_auth=http_auth))
-
         if self.keepalive_timeout:
             keep_alive = 'timeout=%d, max=%d' % \
                          (self.keepalive_timeout, self.total_connections)
-
             headers.update({'keep-alive':keep_alive})
-
         self.headers = headers
         self._create_session()
 
@@ -61,25 +56,17 @@ class Session:
         options = {}
         if headers:
             self.headers.update(headers)
-
-
         if data:
             options.update({'data': data})
         if body:
             options.update({'body': body})
 
         method = method.lower()
-
         if not hasattr(self.session, method):
             raise AttributeError
-
         command = getattr(self.session, method)
-
-        try:
-            async with command(url, **options) as resp:
-                response = await resp.text()
-        except Exception as e:
-            raise e
+        async with command(url, **options) as resp:
+            response = await resp.text()
 
         return response
 

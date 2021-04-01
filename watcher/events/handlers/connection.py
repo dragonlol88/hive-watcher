@@ -74,6 +74,9 @@ class ChannelDeleteHandler(HandlerBase):
         self.watch = event.watch
         self.client_address = self.event.target
 
+    async def handle(self) -> None:
+        pass
+
     def event_action(self, response: t.Any) -> t.Any:
         """
         Method to handle event synchronously
@@ -82,5 +85,3 @@ class ChannelDeleteHandler(HandlerBase):
         self.watch.discard_channel(self.client_address)
         return response
 
-    async def handle(self) -> None:
-        pass

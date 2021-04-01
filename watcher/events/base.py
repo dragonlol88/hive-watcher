@@ -1,5 +1,6 @@
 import typing as t
 
+from watcher.common import EventStatus
 from watcher.buffer import RemoteEventSymbol
 from watcher.buffer import LocalEventSymbol
 
@@ -28,15 +29,12 @@ class EventBase:
         self.loop = loop
         self.symbol = symbol
         self.watch = watch
-
         self._lock = self.watch.lock
 
         if isinstance(symbol, LocalEventSymbol):
             self._target = symbol.path
-
         elif isinstance(symbol, RemoteEventSymbol):
             self._target = symbol.client_address
-
         if handler_class:
             self.handler_class = handler_class
 
@@ -46,28 +44,18 @@ class EventBase:
     def target(self) -> str:
         return self._target
 
-    def evoke_failure_logs(self):
+    def failure_logs(self):
         pass
 
-    def evoke_success_logs(self):
+    def success_logs(self):
         pass
-
 
     async def handle_event(self) -> t.Any:
         # 1. parameter 준비
         # 2. is coroutine 인지 아닌지
         # 3. 성공 or 실패 check 어떻게 하지??
         handle = self.handler.handle_event
-
-        # try:
-        # if not is_coroutine:
-        #     response = await self.run_in_executor(handle)
-        # else:
-        response = await handle()
-        # except:
-        #     response = await self._handle_failure()
-
-        return response
+        return await handle()
 
     @t.no_type_check
     async def _handle_failure(self):
@@ -75,9 +63,12 @@ class EventBase:
 
     async def __call__(self) -> t.Any:
         async with self._lock:
-            # try:
-            response = await self.handle_event()
-            # except:
-            #     self.evoke_failure_logs()
-            # self.evoke_success_logs()
+            try:
+                response = await self.handle_event()
+            except TypeError:
+                self.failure_logs()
+            self.success_logs()
         return response
+
+    event_response = {member.value: member.phrase  # type: ignore
+                      for member in EventStatus.__members__.values()}
