@@ -14,7 +14,7 @@ def run_test_server(server_address, watcher_address):
     return sv
 
 
-def run_test_watcher(root_dir, ignore_pattern, proj_depth, host, port):
+def run_test_emitter(root_dir, ignore_pattern, proj_depth, host, port):
     loop = asyncio.get_event_loop()
     event_queue = queue.Queue()
     watches = {}
@@ -47,10 +47,10 @@ def run_test_watcher(root_dir, ignore_pattern, proj_depth, host, port):
                 try:
                     task, event = event_queue.get()
                     self.queue_event(event)
+                    await task
                 except queue.Empty:
                     pass
 
-                await task
                 is_complete = self._complete.is_set()
 
         def get_event(self, timeout=5):

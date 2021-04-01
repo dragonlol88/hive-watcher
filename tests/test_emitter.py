@@ -5,7 +5,7 @@ import shutil
 import pytest
 
 from watcher.common import EventStatus
-from tests import run_test_watcher, run_test_server
+from tests import run_test_emitter, run_test_server
 
 
 watcher = None
@@ -15,7 +15,7 @@ STORED_DIR = './watcher_directory'
 
 @pytest.fixture
 def run_watcher(root_dir, ignore_pattern, proj_depth, host, port):
-    return run_test_watcher(root_dir, ignore_pattern, proj_depth, host, port)
+    return run_test_emitter(root_dir, ignore_pattern, proj_depth, host, port)
 
 
 def get_client(client_address, watcher_address):
