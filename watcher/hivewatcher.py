@@ -3,7 +3,6 @@ import queue
 import asyncio
 import signal
 import threading
-import functools
 import typing as t
 
 from .common import BaseThread
@@ -82,7 +81,7 @@ class Watch:
 
         self._project = project
         self._paths: t.Set[str] = set()
-        self._channels: t.Set[str] = set() #{"http://127.0.0.1:6666/", "http://192.168.0.230:5112/
+        self._channels: t.Set[str] = {"http://127.0.0.1:6666/"}#set() # set() #{"http://127.0.0.1:6666/", "http://192.168.0.230:5112/
         self._loop = loop
         self._lock = asyncio.Lock(loop=loop)
 
@@ -283,8 +282,7 @@ class HiveEventEmitter(EventEmitter):
         if not isinstance(proj, str):
             proj = str(proj)
 
-        watch = Watch(proj,
-                      self._lock_factory)
+        watch = Watch(proj)
         self.watches[proj] = watch
         return watch
 
@@ -353,13 +351,13 @@ class HiveEventEmitter(EventEmitter):
 class HiveWatcher:
 
     def __init__(self,
+                 host: str,
+                 port: int,
                  watch_path: str,
                  loop_kind: str,
-                 remotenotify_host: str,
-                 remotenotify_port: int,
-                 localnotify_root_dir: str,
-                 localnotify_ignore_pattern: str,
-                 localnotify_proj_depth: int = 1,
+                 root_dir: str,
+                 ignore_pattern: str,
+                 proj_depth: int = 1,
                  timeout: t.Optional[float] = DEFAULT_QUEUE_TIMEOUT,
                  record_interval_minute: t.Optional[float] = 5,
                  max_event: t.Optional[int] = None
@@ -373,11 +371,11 @@ class HiveWatcher:
         self._timeout = timeout
 
         # notify parameter
-        self.remotenotify_host = remotenotify_host
-        self.remotenotify_port = remotenotify_port
-        self.localnotify_root_dir = localnotify_root_dir
-        self.localnotify_ignore_pattern = localnotify_ignore_pattern
-        self.localnotify_proj_depth = localnotify_proj_depth
+        self.remotenotify_host = host
+        self.remotenotify_port = port
+        self.localnotify_root_dir = root_dir
+        self.localnotify_ignore_pattern = ignore_pattern
+        self.localnotify_proj_depth = proj_depth
 
         # loop kind
         self.loop_kind = loop_kind
@@ -404,7 +402,7 @@ class HiveWatcher:
         self.watch_writer = WatchIO(self.watch_path, self._watches)
 
         # event count
-        self.event_count = 0
+        self.event_count = None
 
         # tasks
         self.tasks: t.Set[t.Tuple[Task, Event]] = set()
@@ -418,6 +416,7 @@ class HiveWatcher:
         loop.run_until_complete(self.run())
 
     async def run(self):
+
         await self.load_watch()
 
         self.install_signal_handlers()
@@ -435,7 +434,7 @@ class HiveWatcher:
         event_queue = self._event_queue
         watches = self._watches
         timeout = self.timeout
-
+        count = 0
         self.emitter = HiveEventEmitter(loop,
                                         event_queue,
                                         watches,
@@ -457,7 +456,10 @@ class HiveWatcher:
 
                 # execute event
                 await execute_event(task, event)
-                self.event_count += 1
+
+                if self.event_count is not None:
+                    count += 1
+                    self.event_count = count
 
             except queue.Empty:
                 await asyncio.sleep(0)
@@ -495,16 +497,13 @@ class HiveWatcher:
             else:
                 self.tasks.add((task, event))
 
-        # Write watch information in filese
+        # Write watch information in files
         if now - self.start_time >= self.record_interval_minute*60:
             await self.watch_writer.record()
             self.start_time = now
 
         if self.should_exit:
             return True
-
-        if self.max_event is not None:
-            return self.max_event < self.event_count
 
         return False
 
