@@ -3,22 +3,23 @@ import queue
 import asyncio
 import signal
 import threading
+import inspect
 import typing as t
 
 from .common import BaseThread
 from .common import EventQueue
 from .common import WatchIO
-from .loops.asyncio_loop import asyncio_setup
-
 from .notify import Notify
 from .events import HIVE_EVENTS
 from .buffer import EventSymbol
-from .type import Loop, Task
+from .type import Task, Loop
+
 from .wrapper.response import WatcherConnector
+from .loops.asyncio_loop import asyncio_setup
 
 if t.TYPE_CHECKING:
     from .events import EventBase as Event
-    from .type import Task
+    from .type import Task, Loop
 
 DEFAULT_QUEUE_TIMEOUT = 1
 
@@ -52,6 +53,7 @@ async def execute_event(task, event):
         await task
     except Exception as e:
         # log 찍기
+        print("adfaljdflkajldkfj")
         print(e, event)
 
 
@@ -81,7 +83,7 @@ class Watch:
 
         self._project = project
         self._paths: t.Set[str] = set()
-        self._channels: t.Set[str] = {"http://127.0.0.1:6666/"}#set() # set() #{"http://127.0.0.1:6666/", "http://192.168.0.230:5112/
+        self._channels: t.Set[str] = set() # set() #{"http://127.0.0.1:6666/", "http://192.168.0.230:5112/
         self._loop = loop
         self._lock = asyncio.Lock(loop=loop)
 
@@ -254,7 +256,6 @@ class HiveEventEmitter(EventEmitter):
         self._lock_factory = loop
         self._task_factory = task_factory
         self.params = params
-        self.notify = None
 
     @property
     def watches(self):
@@ -282,7 +283,8 @@ class HiveEventEmitter(EventEmitter):
         if not isinstance(proj, str):
             proj = str(proj)
 
-        watch = Watch(proj)
+        watch = Watch(proj,
+                      self._lock_factory)
         self.watches[proj] = watch
         return watch
 
@@ -292,11 +294,8 @@ class HiveEventEmitter(EventEmitter):
         :param event:
         :return:
         """
-        event_type = symbol.event_type
         loop = self.loop
-        if event_type not in HIVE_EVENTS:
-            raise KeyError
-        return HIVE_EVENTS[event_type](watch, symbol, loop)                        # type: ignore
+        return HIVE_EVENTS[symbol.event_type](watch, symbol, loop)                        # type: ignore
 
     def queue_events(self, timeout: float) -> None:
         """
@@ -315,21 +314,15 @@ class HiveEventEmitter(EventEmitter):
                 watch = self.watches.get(symbol.proj, None)
                 if not watch:
                     watch = self._produce_watch(symbol)
-
+                event: 'Event' = self._pull_event(symbol, watch)
+                print(event)
                 try:
-                    event: 'Event' = self._pull_event(symbol, watch)
-                    print(event.event_type)
-                    if not isinstance(event, t.Callable):                                     # type: ignore
-                        raise TypeError
-
-                    coroutine_event: t.Coroutine = event()
-                    task = self._task_factory(coroutine_event)
-
-                    self.queue_event((task, event))
-                except Exception as e:
-                    if isinstance(e, KeyError):
-                        raise e
-                    raise e
+                    aws = self._task_factory(event())
+                except TypeError:
+                    if not (asyncio.iscoroutine(event()) or inspect.isfunction(event)):
+                        continue
+                    aws = self.loop.run_in_executor(None, event)                               # type: ignore
+                self.queue_event((aws, event))
 
     def on_thread_stop(self):
         """
@@ -453,14 +446,11 @@ class HiveWatcher:
                 task, event = self.get_event_queue()
                 # Put event in task set
                 self.tasks.add((task, event))
-
                 # execute event
                 await execute_event(task, event)
-
                 if self.event_count is not None:
                     count += 1
-                    self.event_count = count
-
+                    self.event_count.value = count
             except queue.Empty:
                 await asyncio.sleep(0)
                 pass
