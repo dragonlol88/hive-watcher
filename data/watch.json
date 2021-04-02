@@ -1,25 +1,9 @@
 {
-    "project1": {
-        "paths": [
-            "test1_ver1.txt",
-            "test1_ver2.txt"
-        ],
-        "channels": []
-    },
-    "project2": {
-        "paths": [
-            "test1_ver1.txt",
-            "test1_ver2.txt"
-        ],
-        "channels": []
-    },
     "sample": {
         "paths": [
-            "./data/project/sample/test_project_stopword_210330.txt",
-            "./data/project/sample/test_project_synonym_210330.txt"
+            "./data/project/sample/test_project_synonym_210330.txt",
+            "./data/project/sample/test_project_stopword_210330.txt"
         ],
-        "channels": [
-            "http://127.0.0.1:6666/"
-        ]
+        "channels":[]
     }
 }
