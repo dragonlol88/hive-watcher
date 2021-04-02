@@ -14,15 +14,18 @@ HANDLED_SIGNALS = (
 )
 
 TYPE_CODE = {
-    int: 'H',
+    int  : 'H',
     float: 'd',
-    str: 'u'
+    str  : 'u'
 }
+
+if sys.version_info > (3, 7):
+    context = multiprocessing.get_context("fork")
+else:
+    context = multiprocessing
 
 
 def get_subprocess(target, **kwargs):
-
-
     try:
         stdin_fileno = sys.stdin.fileno()
     except OSError:
@@ -32,12 +35,10 @@ def get_subprocess(target, **kwargs):
         'target': target,
         'stdin_fileno': stdin_fileno
     }
-
-    return multiprocessing.Process(target=subprocess_started, kwargs=kw)
+    return context.Process(target=subprocess_started, kwargs=kw)
 
 
 def subprocess_started(target, stdin_fileno):
-
     if stdin_fileno:
         sys.stdin = os.fdopen(stdin_fileno)
 
@@ -46,8 +47,7 @@ def subprocess_started(target, stdin_fileno):
 
 def get_shared_variable(p_type: t.Type[t.Union[int, str, float]],
                         init_value: t.Optional[t.Any] = None,
-                        lock: t.Optional[bool] = True):
-
+                        lock: bool = True):
     args = []
     if p_type not in TYPE_CODE:
         raise KeyError("%s is not supported variable types" % str(p_type))
@@ -56,14 +56,10 @@ def get_shared_variable(p_type: t.Type[t.Union[int, str, float]],
     args.append(type_code)
     if init_value:
         args.append(init_value)
-
-    args = tuple(args)
-
-    return multiprocessing.Value(*args, lock=lock)
+    return multiprocessing.Value(*tuple(args), lock=lock)
 
 
 class Supervisor:
-
     sec2day = 1 / 3600 * 24
 
     def __init__(self,
@@ -80,7 +76,7 @@ class Supervisor:
         self.pid = os.getpid()
 
         self.should_exit = threading.Event()
-        self.startime = time.time()
+        self.start_time = time.time()
 
     def signal_handler(self, sig, frame):
         """
@@ -92,24 +88,22 @@ class Supervisor:
         self.setup_watch()
         self.startup()
         while not self.should_exit.wait(self.reload_delay):
-            if self.should_reload:
+            if self.should_reload():
                 self.restart()
-
         self.shutdown()
 
     def startup(self):
 
         for sig in HANDLED_SIGNALS:
             signal.signal(sig, self.signal_handler)
-
+        # logging
         self.process = get_subprocess(self.target)
         self.process.start()
 
     def restart(self):
-
+        # logging
         self.process.terminate()
         self.process.join()
-        print('reload start')
         self.process = get_subprocess(self.target)
         self.process.start()
 
@@ -123,15 +117,11 @@ class Supervisor:
         self.event_num = get_shared_variable(type(self.max_event), 0)
         self.watcher.event_count = self.event_num
 
-    @property
     def should_reload(self):
         check_time = time.time()
         event_num = self.event_num.value
         if self.max_event < event_num:
             return True
-
-        if self.reload_interval > (check_time-self.startime)*self.sec2day:
+        if self.reload_interval > (check_time - self.start_time) * self.sec2day:
             return True
-
         return False
-
