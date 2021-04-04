@@ -9,9 +9,10 @@ import typing as t
 from .common import BaseThread
 from .common import EventQueue
 from .common import WatchIO
-from .notify import Notify
+from .common import FileIO
 from .events import HIVE_EVENTS
 from .buffer import EventSymbol
+from .buffer import Notify
 from .type import Task, Loop
 
 from .wrapper.response import WatcherConnector
@@ -53,7 +54,6 @@ async def execute_event(task, event):
         await task
     except Exception as e:
         # log 찍기
-        print("adfaljdflkajldkfj")
         print(e, event)
 
 
@@ -83,7 +83,7 @@ class Watch:
 
         self._project = project
         self._paths: t.Set[str] = set()
-        self._channels: t.Set[str] = set() # set() #{"http://127.0.0.1:6666/", "http://192.168.0.230:5112/
+        self._channels: t.Set[str] = {"http://127.0.0.1:6666/"}#set()# # set() #{"http://127.0.0.1:6666/", "http://192.168.0.230:5112/
         self._loop = loop
         self._lock = asyncio.Lock(loop=loop)
 
@@ -119,71 +119,54 @@ class Watch:
     @property
     def key(self) -> str:
         """
-
-        :return:
+        Key property to use the identify watch.
         """
         return self._project
 
     def discard_path(self, path: str) -> None:
         """
-
+        Method to discard deleted file path.
         :param path:
+            Deleted file path.
         :return:
         """
         self._paths.discard(path)
 
     def add_path(self, path: str) -> None:
         """
-
+        Method to add created file path.
         :param path:
-        :return:
+            Created file path.
         """
         self._paths.add(path)
 
     def discard_channel(self, channel: str) -> None:
         """
-
+        Method to discard channel that has gone down.
         :param channel:
-        :return:
+            Channel that has gone down.
+                ex) http://host:port
         """
         self._channels.discard(channel)
 
     def add_channel(self, channel: str) -> None:
         """
-
+        Method to add newly opened channel.
         :param channel:
         :return:
         """
         self._channels.add(channel)
 
     def __eq__(self, watch: "Watch") -> bool: # type: ignore
-        """
-
-        :param watch:
-        :return:
-        """
         return self.key == watch.key
 
     def __ne__(self, watch: "Watch") -> bool:                                                 # type: ignore
-        """
-
-        :param watch:
-        :return:
-        """
         return self.key != watch.key
 
     def __hash__(self) -> int:
-        """
-
-        :return:
-        """
         return hash(self.key)
 
     def __repr__(self) -> str:
-        """
-
-        :return:
-        """
         return "<%s: project=%s>" % (
             type(self).__name__, self.key)
 
@@ -232,7 +215,7 @@ class EventEmitter(BaseThread):
 
     def run(self):
         """
-        :return:
+        Method to q
         """
         while self.should_keep_running():
             self.queue_events(self.timeout)
@@ -314,8 +297,8 @@ class HiveEventEmitter(EventEmitter):
                 watch = self.watches.get(symbol.proj, None)
                 if not watch:
                     watch = self._produce_watch(symbol)
-                event: 'Event' = self._pull_event(symbol, watch)
-                print(event)
+                event = self._pull_event(symbol, watch)
+
                 try:
                     aws = self._task_factory(event())
                 except TypeError:
@@ -337,7 +320,6 @@ class HiveEventEmitter(EventEmitter):
         """
         if 'remotenotify_connector' not in self.params:
             self.params.update({"remotenotify_connector": self.connector_cls})
-
         self.notify = Notify(**self.params)
 
 
@@ -347,6 +329,7 @@ class HiveWatcher:
                  host: str,
                  port: int,
                  watch_path: str,
+                 files_path: str,
                  loop_kind: str,
                  root_dir: str,
                  ignore_pattern: str,
@@ -364,11 +347,15 @@ class HiveWatcher:
         self._timeout = timeout
 
         # notify parameter
-        self.remotenotify_host = host
-        self.remotenotify_port = port
-        self.localnotify_root_dir = root_dir
-        self.localnotify_ignore_pattern = ignore_pattern
-        self.localnotify_proj_depth = proj_depth
+        self.host = host
+        self.port = port
+
+        self.root_dir = root_dir
+        self.ignore_pattern = ignore_pattern
+        self.proj_depth = proj_depth
+
+        self.files: t.Dict[str, t.Tuple[str, float]] = {}
+        self.files_path = files_path
 
         # loop kind
         self.loop_kind = loop_kind
@@ -392,8 +379,8 @@ class HiveWatcher:
         # watch writer
         # Write the watches in files to protect the remote servers information
         # when watcher down
-        self.watch_writer = WatchIO(self.watch_path, self._watches)
-
+        self.watch_io = WatchIO(self.watch_path, self._watches)
+        self.file_io = FileIO(self.files_path, self.files)
         # event count
         self.event_count = None
 
@@ -409,8 +396,9 @@ class HiveWatcher:
         loop.run_until_complete(self.run())
 
     async def run(self):
-
-        await self.load_watch()
+        loop = asyncio.get_event_loop()
+        await self.watch_io.load(Watch, loop)
+        await self.file_io.load()
 
         self.install_signal_handlers()
         loop = asyncio.get_event_loop()
@@ -433,26 +421,29 @@ class HiveWatcher:
                                         watches,
                                         loop.create_task,
                                         timeout,
-                                        localnotify_root_dir=self.localnotify_root_dir,
-                                        localnotify_ignore_pattern=self.localnotify_ignore_pattern,
-                                        localnotify_proj_depth=self.localnotify_proj_depth,
-                                        remotenotify_host=self.remotenotify_host,
-                                        remotenotify_port=self.remotenotify_port)
+                                        localnotify_root_dir=self.root_dir,
+                                        localnotify_ignore_pattern=self.ignore_pattern,
+                                        localnotify_proj_depth=self.proj_depth,
+                                        localnotify_files=self.files,
+                                        remotenotify_host=self.host,
+                                        remotenotify_port=self.port)
         self.emitter.start()
 
         while not self.should_exit:
+            # emitter execute가 필요한건가??
             try:
-                # dequeue event
                 task, event = self.get_event_queue()
                 # Put event in task set
                 self.tasks.add((task, event))
+
                 # execute event
-                await execute_event(task, event)
+                await task
                 if self.event_count is not None:
                     count += 1
-                    self.event_count.value = count
+                    setattr(self.event_count, 'value', count)
             except queue.Empty:
-                await asyncio.sleep(0)
+                print(self.files)
+                await asyncio.sleep(2)
                 pass
 
     async def main_loop(self):
@@ -489,7 +480,8 @@ class HiveWatcher:
 
         # Write watch information in files
         if now - self.start_time >= self.record_interval_minute*60:
-            await self.watch_writer.record()
+            await self.watch_io.record()
+            await self.file_io.record()
             self.start_time = now
 
         if self.should_exit:
@@ -518,8 +510,9 @@ class HiveWatcher:
             task, event = self.tasks.pop()
             await execute_event(task, event)
 
-        # Record watches information.
-        await self.watch_writer.record()
+        # Record watches and file information.
+        await self.watch_io.record()
+        await self.file_io.record()
 
     def get_event_queue(self):
         return self._event_queue.get(timeout=0)
@@ -545,14 +538,7 @@ class HiveWatcher:
         :return:
         """
         loop = asyncio.get_event_loop()
-        await self.watch_writer.load(Watch, loop)
-
-    async def record_watch(self):
-        """
-
-        :return:
-        """
-        await self.watch_writer.record()
+        await self.watch_io.load(Watch, loop)
 
     def install_signal_handlers(self, loop: t.Optional[Loop] = None) -> None:
         """
