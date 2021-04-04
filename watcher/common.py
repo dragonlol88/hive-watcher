@@ -82,19 +82,54 @@ class BaseThread(threading.Thread):
         threading.Thread.start(self)
 
 
-class WatchIO:
+class _JsonIO:
 
-    def __init__(self, watch_path: str, watches: t.Dict[str, t.Any]):
+    def __init__(self, path: str, target: t.Dict[str, t.Any]):
+        self.path = path
+        self.target = target
 
-        self.watches = watches
-        self.watch_path = watch_path
+    async def record(self):
+        raise NotImplementedError
+
+    async def load(self):
+        raise NotImplementedError
+
+    async def dump_to_json(self, data: t.Dict[str, t.Any]) -> None:
+        """
+
+        :param data:
+        :return:
+        """
+        json = AsyncJson()
+        async with get_file_io(self.path, 'w') as af:
+            await json.dump(data, af)
+
+    async def load_to_json(self) -> t.Dict[str, t.Dict[str, t.Any]]:
+        """
+        Load data from json file.
+        :return:
+            Dictionary object. key is project.
+        """
+        json = AsyncJson()
+        try:
+            async with get_file_io(self.path, 'r') as af:
+                data = await json.load(af)
+        except FileNotFoundError:
+            data = {}
+        return data
+
+
+class WatchIO(_JsonIO):
+
+    def __init__(self, path: str, target: t.Dict[str, t.Any]):
+        super().__init__(path, target)
 
     async def record(self):
         """
         Record watch information in json formation.
         """
 
-        watches = self.watches
+        watches = self.target
         watch_dic = {}
 
         for key, watch in watches.items():
@@ -106,7 +141,6 @@ class WatchIO:
                         value = list(value)
                     watch_dic[key][store_key] = value
                 await asyncio.sleep(0.1)
-
         await self.dump_to_json(watch_dic)
 
     @t.no_type_check
@@ -124,33 +158,20 @@ class WatchIO:
             for store_key in WATCH_STORE_KEY:
                 value = set(data[store_key])
                 setattr(watch, store_key, value)
-            self.watches[key] = watch
-
-    async def dump_to_json(self, data: t.Dict[str, t.Dict[str, t.Iterable]]) -> None:
-        """
-
-        :param data:
-        :return:
-        """
-        json = AsyncJson()
-        async with get_file_io(self.watch_path, 'w') as af:
-            await json.dump(data, af)
-
-    async def load_to_json(self) -> t.Dict[str, t.Dict[str, t.Iterable]]:
-        """
-        Load data from json file.
-        :return:
-            Dictionary object. key is project.
-        """
-        json = AsyncJson()
-        async with get_file_io(self.watch_path, 'r') as af:
-            data = await json.load(af)
-        return data
+            self.target[key] = watch
 
 
+class FileIO(_JsonIO):
 
+    def __init__(self, path: str, target: t.Dict[str, t.Any]):
+        super().__init__(path, target)
 
+    async def record(self):
+        await self.dump_to_json(self.target)
 
+    async def load(self):
+        data = await self.load_to_json()
+        self.target.update(data)
 
 
 
