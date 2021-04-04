@@ -19,8 +19,14 @@ class HandlerBase:
     def __init__(self, event: t.Union['ChannelEventTypes', 'FileEventTypes']):
 
         self.event = event
-        self.event_type = event.event_type
-        self.watch = event.watch
+
+    @property
+    def event_type(self):
+        return self.event.event_type
+
+    @property
+    def watch(self):
+        return self.event.watch
 
     def event_action(self, response: t.Any) -> t.Any:
         """

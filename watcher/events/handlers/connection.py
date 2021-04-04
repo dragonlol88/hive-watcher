@@ -13,8 +13,15 @@ class ChannelCreateHandler(HandlerBase):
 
     def __init__(self, event: 'CreateChannelEvent', **kwargs):
         super().__init__(event)
-        self.connector = event.connector
-        self.client_address = event.target
+
+
+    @property
+    def client_address(self):
+        return self.event.target
+
+    @property
+    def connector(self):
+        return self.event.connector
 
     async def handle(self) -> None:
         """
@@ -71,8 +78,10 @@ class ChannelDeleteHandler(HandlerBase):
 
     def __init__(self, event: 'DeleteChannelEvent'):
         super().__init__(event)
-        self.watch = event.watch
-        self.client_address = self.event.target
+
+    @property
+    def client_address(self):
+        return self.event.target
 
     async def handle(self) -> None:
         pass
