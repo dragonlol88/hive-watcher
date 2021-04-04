@@ -18,15 +18,19 @@ def run_test_emitter(root_dir, ignore_pattern, proj_depth, host, port):
     loop = asyncio.get_event_loop()
     event_queue = queue.Queue()
     watches = {}
+    files = {}
+    timeout = 0.4
     emitter = HiveEventEmitter(loop,
-                              event_queue,
-                              watches,
-                              loop.create_task,
-                              localnotify_root_dir=root_dir,
-                              localnotify_ignore_pattern=ignore_pattern,
-                              localnotify_proj_depth=proj_depth,
-                              remotenotify_host=host,
-                              remotenotify_port=port)
+                               event_queue,
+                               watches,
+                               loop.create_task,
+                               timeout,
+                               localnotify_root_dir=root_dir,
+                               localnotify_ignore_pattern=ignore_pattern,
+                               localnotify_proj_depth=proj_depth,
+                               localnotify_files=files,
+                               remotenotify_host=host,
+                               remotenotify_port=port)
     emitter.start()
 
     class WatcherThread(threading.Thread):
