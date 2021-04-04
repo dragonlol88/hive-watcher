@@ -41,7 +41,7 @@ async def load(watch_path, watch_cls):
     watches = {}
     wio = WatchIO(watch_path, watches)
     await wio.load(watch_cls, loop)
-    return wio.watches
+    return wio.target
 
 
 def test_watchio_record(
