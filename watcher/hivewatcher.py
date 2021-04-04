@@ -83,7 +83,7 @@ class Watch:
 
         self._project = project
         self._paths: t.Set[str] = set()
-        self._channels: t.Set[str] = {"http://127.0.0.1:6666/"}#set()# # set() #{"http://127.0.0.1:6666/", "http://192.168.0.230:5112/
+        self._channels: t.Set[str] = set()# # set() #{"http://127.0.0.1:6666/", "http://192.168.0.230:5112/
         self._loop = loop
         self._lock = asyncio.Lock(loop=loop)
 
