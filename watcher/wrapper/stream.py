@@ -1,20 +1,25 @@
 import io
 import asyncio
+import aiofiles
 import typing as t
 import functools
-import aiofiles
 import concurrent.futures
+
 from json import JSONEncoder
 from json import JSONDecoder
 from json import JSONDecodeError
 from json import detect_encoding                                                # type: ignore
+
+from aiofiles.base import AiofilesContextManager
+from aiofiles.threadpool import AsyncBufferedIOBase                             # type: ignore
+from aiofiles.threadpool import AsyncTextIOWrapper                              # type: ignore
 from werkzeug.wsgi import LimitedStream
 
 
 READ_SIZE = 64 * 1024
 
 
-class AsyncFileIO(aiofiles.base.AiofilesContextManager):
+class AsyncFileIO(AiofilesContextManager):
 
     def __init__(self, coro):
         super(AsyncFileIO, self).__init__(coro)
@@ -41,7 +46,6 @@ def get_file_io(file_name: str, mode: t.Optional[str] = 'rb') -> AsyncFileIO:
         aiofiles.threadpool._open,  # type: ignore
         mode=mode
     )
-
     return AsyncFileIO(_open(file_name))
 
 
@@ -62,7 +66,6 @@ async def stream(file: str, mode: str = 'rb'):
     while chunk:
         yield chunk
         chunk = await buffer.read(READ_SIZE)
-
     await file_io.close()
 
 
@@ -86,7 +89,9 @@ class AsyncJson:
 
     def __init__(self,
                  target_path: t.Optional[str] = None,
-                 executor: t.Optional[concurrent.futures.ThreadPoolExecutor] = None,
+                 executor: t.Optional[
+                        concurrent.futures.ThreadPoolExecutor
+                 ] = None,
                  worker: t.Optional[int] = None):
 
         self.target_path = target_path
@@ -96,7 +101,9 @@ class AsyncJson:
     @t.no_type_check
     async def dump(self,
                    obj: t.Dict[str, t.Any],
-                   fp: t.Optional[t.Union[io.TextIOBase, io.BufferedIOBase]] = None,
+                   fp: t.Optional[
+                       t.Union[io.TextIOBase, io.BufferedIOBase]
+                   ] = None,
                    *,
                    mode: t.Optional[str] = 'w',
                    **kw):
@@ -115,11 +122,11 @@ class AsyncJson:
         loop = asyncio.get_event_loop()
         iterable = self.make_iterencode(obj)
 
-        def sync_write(iterable):
+        def sync_write():
             for chunk in iterable:
                 fp.write(chunk)
 
-        async def async_write(iterable):
+        async def async_write():
             for chunk in iterable:
                 await fp.write(chunk)
 
@@ -131,20 +138,20 @@ class AsyncJson:
 
         if asyncio.iscoroutine(fp):
             fp = await fp.open()
-            await async_write(iterable)
+            await async_write()
             await fp.close()
 
-        elif isinstance(fp,
-                        (aiofiles.threadpool.AsyncBufferedIOBase,
-                         aiofiles.threadpool.AsyncTextIOWrapper)):
-            await async_write(iterable)
+        elif isinstance(fp, (AsyncBufferedIOBase, AsyncTextIOWrapper)):
+            await async_write()
 
         else:
-            await loop.run_in_executor(self.executor, sync_write, iterable)
+            await loop.run_in_executor(self.executor, sync_write)
 
     @t.no_type_check
     async def load(self,
-                   fp: t.Optional[t.Union[io.TextIOBase, io.BufferedIOBase]] = None,
+                   fp: t.Optional[
+                       t.Union[io.TextIOBase, io.BufferedIOBase]
+                   ] = None,
                    *,
                    mode='rb'):
         """
@@ -164,12 +171,8 @@ class AsyncJson:
         if asyncio.iscoroutine(fp):
             fp = await fp.open()
             read = await fp.read()
-
-        elif isinstance(fp,
-                        (aiofiles.threadpool.AsyncBufferedIOBase,
-                         aiofiles.threadpool.AsyncTextIOWrapper)):
+        elif isinstance(fp, (AsyncBufferedIOBase, AsyncTextIOWrapper)):
             read = await fp.read()
-
         else:
             read = fp.read()
 
@@ -182,7 +185,6 @@ class AsyncJson:
                 raise TypeError(f'the JSON object must be str, bytes or bytearray, '
                                 f'not {read.__class__.__name__}')
             read = read.decode(detect_encoding(read), 'surrogatepass')
-
         json_data = self._default_decoder.decode(read)
         return json_data
 
