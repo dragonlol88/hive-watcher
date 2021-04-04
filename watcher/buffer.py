@@ -1,23 +1,41 @@
 import os
 import re
 import http
+import time
 import socket
 import queue
-import logging
 import typing as t
+import selectors
+import threading
 
 from watcher.common import EventStatus
 from watcher.exceptions import FilePaserError
 
+from werkzeug.serving import ThreadedWSGIServer as WSGIServer
 from werkzeug.wrappers import Request as WSGIRequest
 from werkzeug.serving import WSGIRequestHandler
 from werkzeug.datastructures import EnvironHeaders
 from werkzeug.wrappers import Response
 
+from watcher.common import BaseThread, EventQueue
+
+if hasattr(selectors, 'PollSelector'):
+    _ServerSelector = selectors.PollSelector
+else:
+    _ServerSelector = selectors.SelectSelector                                                 # type: ignore
+
+_TSSLContextArg = t.Optional[
+    t.Union["ssl.SSLContext", t.Tuple[str, t.Optional[str]], "te.Literal['adhoc']"]            # type: ignore
+]
+
+if t.TYPE_CHECKING:
+    from .wrapper.response import WatcherConnector
+
+
 EVENT_TYPE_KEY = 'Event-Type'
 PROJECT_KEY    = 'Project-Name'
+EVENT_PERIOD = 0.5
 
-logger = logging.Logger("hive-watcher")
 
 class EventSymbol:
 
@@ -160,7 +178,9 @@ class RemoteEventSymbol(EventSymbol):
         :return:
         """
         addr = self.environ.get("HTTP_CLIENT_ADDRESS")
-        scheme = self.environ.get("wsgi.url_scheme")
+        scheme = self.environ.get("wsgi.url_scheme", None)
+        if scheme is None:
+            scheme = 'http'
         if not isinstance(addr, str):
             addr = str(addr)
         url = f'{scheme}://{addr}'
@@ -185,6 +205,54 @@ class RemoteEventSymbol(EventSymbol):
         return self.proj, self.client_address
 
 
+class Notify:
+
+    __notifies__: t.Set[t.Union['RemoteNotify', 'LocalNotify']] = set()
+
+    def __init__(self, **params: t.Dict[str, t.Any]):
+        self.params = params
+        self.notifies = []
+
+        for notify in self.__notifies__:
+            noti_kwargs = {}
+            notify_name = notify.__name__.lower()                                               # type: ignore
+            for arg, value in self.params.items():
+                seperated_arg = arg.split("_")
+                cls_name = seperated_arg[0]
+                arg_name = '_'.join(seperated_arg[1:])
+                if notify_name == cls_name:
+                    noti_kwargs[arg_name] = value
+            buffer_queue: queue.Queue = queue.Queue()
+            self.notifies.append(notify(buffer_queue=buffer_queue, **noti_kwargs))              # type: ignore
+
+    @classmethod
+    def register(cls, notify: t.Union[t.Any, 'LocalNotify', 'RemoteNotify']) -> None:
+        """
+        Method to register notifies.
+        :param notify:
+
+        """
+        cls.__notifies__.add(notify)
+
+    def read_events(self) -> t.List[EventSymbol]:
+        """
+        Method to read the event from symbols.
+        """
+
+        symbols = []
+        for notify in self.notifies:
+            symbol = notify.read_event()
+            symbols.append(symbol)
+        return [symbol for symbol in symbols if isinstance(symbol, EventSymbol)]
+
+    def stop(self):
+        """
+        Method to stop Notify.
+        """
+        for notify in self.notifies:
+            notify.stop()
+
+
 class LocalBuffer:
     """
     ignore pattern is regex_pattern
@@ -193,14 +261,14 @@ class LocalBuffer:
                  root_path: str,
                  proj_depth: int,
                  ignore_pattern: str,
-                 buffer_queue: queue.Queue):
+                 buffer_queue: queue.Queue,
+                 files: t.Dict[str, t.Tuple[str, float]]):
 
         self._root_path = root_path
         self._project_depth = proj_depth
         self.buffer_queue = buffer_queue
-        self.files: t.Dict[str, t.Tuple[str,float]] = {}
+        self.files: t.Dict[str, t.Tuple[str, float]] = files
         self.ignore_pattern = ignore_pattern
-
 
     @property
     def root_path(self) -> str:
@@ -263,6 +331,9 @@ class LocalBuffer:
         else:
             self._knock_file(path, symbols, new_files, os.stat(path))
 
+    def _delete_file(self, file):
+        self.files.pop(file)
+
     def read_events(self):
         """
 
@@ -289,16 +360,70 @@ class LocalBuffer:
             #Todo log 찍어야함
             raise e
 
+        # Find deleted files
         deleted_files = self.files.keys() - new_files.keys()
+        for path in deleted_files:
+            proj = self.files[path][0]
+            symbols.put(LocalEventSymbol(proj, path, EventStatus.FILE_DELETED))
+            self._delete_file(path)
 
-        if deleted_files:
-            for deleted_file in deleted_files:
-                symbols.put(LocalEventSymbol(self.files[deleted_file][0],
-                                        deleted_file,
-                                        EventStatus.FILE_DELETED))
+        # Files updated with new content
+        self.files.update(new_files)
 
-        #Todo file 저장하는거 코드 추
-        self.files = new_files
+
+class LocalNotify(BaseThread):
+    """
+    :param root_dir
+    :param proj_depth
+    :param ignore_pattern
+
+    """
+    def __init__(self,
+                 root_dir: str,
+                 proj_depth: int,
+                 ignore_pattern: str,
+                 buffer_queue: queue.Queue,
+                 files: t.Dict[str, t.Tuple[str, float]]):
+        super().__init__()
+
+        self._lock = threading.Lock()
+        self._event_queue = EventQueue()
+        self._buffer_queue = buffer_queue
+        self._buffer = LocalBuffer(root_dir, proj_depth, ignore_pattern, buffer_queue, files)
+        self.start()
+
+    def read_event(self) -> EventSymbol:
+        """
+        Method to get event out from event queue.
+        """
+        try:
+            q = self._event_queue.get(timeout=0.001)
+        except queue.Empty:
+            q = set()
+        return q
+
+    def queue_event(self, event):
+        """
+        Method to queue event into event_queue.
+        :param event:
+            Event to be enqueued.
+        """
+        self._event_queue.put(event)
+
+    def run(self):
+        """
+        :return:
+        """
+        while self.should_keep_running():
+            with self._lock:
+                events = self._buffer.read_events()
+                #time sleep for excluding tempfile
+                for event in events:
+                    self.queue_event(event)
+            time.sleep(EVENT_PERIOD)
+
+
+Notify.register(LocalNotify)
 
 
 class RemoteBuffer(WSGIRequestHandler):
@@ -334,7 +459,6 @@ class RemoteBuffer(WSGIRequestHandler):
 
         super().run_wsgi()
 
-
     def parse_request(self) -> bool:
         base_output = super().parse_request()
 
@@ -348,13 +472,11 @@ class RemoteBuffer(WSGIRequestHandler):
                 message = '%s key' % PROJECT_KEY
             else:
                 message = '%s, %s keys' % (PROJECT_KEY, EVENT_TYPE_KEY)
-
             self.send_error(
                 http.HTTPStatus.BAD_REQUEST,
                 "Bad request header. "
                 "Header must contain (%s) " % message)
             return False
-
         return base_output
 
     def handle_one_request(self) -> None:
@@ -382,3 +504,106 @@ class DummyBuffer:
 
     def read_events(self):
         return set()
+
+
+class RemoteNotify(BaseThread,  WSGIServer):
+
+    def __init__(self,
+                 host: str,
+                 port: int,
+                 connector: 'WatcherConnector',
+                 buffer_queue: queue.Queue,
+                 handler: t.Optional[t.Type["RemoteBuffer"]] = RemoteBuffer,
+                 passthrough_errors: bool = False,
+                 ssl_context: t.Optional[_TSSLContextArg] = None,
+                 fd: t.Optional[int] = None,
+                 ) -> None:
+
+        BaseThread.__init__(self)
+        app = None
+        self.connector = connector
+
+        WSGIServer.__init__(self,
+                            host,
+                            port,
+                            app,
+                            handler,
+                            passthrough_errors,
+                            ssl_context,
+                            fd)
+
+        self._lock = threading.RLock()
+        self._event_queue = EventQueue()
+        self._buffer_queue = buffer_queue
+        self.start()
+
+    @property
+    def buffer_queue(self):
+        """
+        Buffer queue property
+        """
+        return self._buffer_queue
+
+    def serve_forever(self, poll_interval=0.5):
+        try:
+            WSGIServer.serve_forever(self)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            self.server_close()
+
+    def read_event(self) -> EventSymbol:
+        """
+        Method to read event from  queue.
+        """
+        try:
+            q = self._event_queue.get(timeout=0.001)
+        except queue.Empty:
+            q = ''
+        return q
+
+    def queue_event(self, event):
+        """
+        Method to enqueue event into event_queue.
+        :param event:
+            Event
+        """
+        self._event_queue.put(event)
+
+    def finish_request(self, request: 'Socket', client_address):                                 # type: ignore
+        """Finish one request by instantiating RequestHandlerClass."""
+
+        self.RequestHandlerClass(request, client_address, self)
+
+    def read_buffer_event(self) -> t.Set[t.Any]:
+        """
+        Method to read event from buffer queue.
+        """
+        events = set()
+        is_empty = False
+        while not is_empty:
+            try:
+                es = self.buffer_queue.get(timeout=0)
+                events.add(es)
+            except queue.Empty:
+                is_empty = True
+
+        return events
+
+    def service_actions(self) -> None:
+        """
+        Method to read event from buffer queue and enqueue
+        event into even queue.
+        """
+        with self._lock:
+            events = self.read_buffer_event()
+            while events:
+                event = events.pop()
+                self.queue_event(event)
+
+    def run(self):
+        while self.should_keep_running():
+            self.serve_forever()
+
+
+Notify.register(RemoteNotify)
