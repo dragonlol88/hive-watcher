@@ -46,6 +46,14 @@ class EventBase:
         return await handle
 
     async def __call__(self) -> t.Any:
+        exception = None
         async with self._lock:
-            response = await self.handle_event()
+            try:
+                response = await self.handle_event()
+            except Exception as exc:
+                # Process additional error to void deadlock
+                exception = exc
+
+        if exception:
+            raise exception
         return response
