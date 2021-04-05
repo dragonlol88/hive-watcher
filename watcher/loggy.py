@@ -16,7 +16,7 @@ LOGGING_CONFIG = {
     "formatters": {
         "default": {
             "()": "watcher.loggy.DefaultFormatter",
-            "fmt": "%(asctime)s - %(levelname)s - %(message)s (%(filename)s:%(lineno)d)",
+            "fmt": "%(levelname)s - %(message)s (%(filename)s:%(lineno)d)",
             "datefmt": '%m/%d/%Y %I:%M:%S %p',
             "use_colors": True,
         },
@@ -48,6 +48,7 @@ LOGGING_CONFIG = {
 
 COLORS = {
         'grey': "\x1b[38;21m",
+        'green': "\x1b[32m",
         'yellow': "\x1b[33;21m",
         'red': "\x1b[31;21m",
         'bold_red': "\x1b[31;1m",
@@ -118,21 +119,3 @@ class EventFormatter(ColoredFormatter):
 
 def configure_logging():
     logging.config.dictConfig(LOGGING_CONFIG)
-
-
-# # create logger with 'spam_application'
-# logger = logging.getLogger("My_app")
-# logger.setLevel(logging.DEBUG)
-#
-# # create console handler with a higher log level
-# ch = logging.StreamHandler()
-# ch.setLevel(logging.DEBUG)
-#
-# ch.setFormatter(ColoredFormatter(fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s (%(filename)s:%(lineno)d)"))
-#
-# logger.addHandler(ch)
-# logger.debug("debug message")
-# logger.info("info message")
-# logger.warning("warning message")
-# logger.error("error message")
-# logger.critical("critical message")

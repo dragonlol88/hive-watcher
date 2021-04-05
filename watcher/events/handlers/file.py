@@ -26,8 +26,7 @@ class FileHandler(HandlerBase):
 
         super().__init__(event)
 
-        self.file = self.event.target
-        self.headers = self.update_headers(self.file)
+        self.headers = self.update_headers(self.target)
         self.session = Session(loop=self.loop, headers=self.headers, **kwargs)
 
     @property
@@ -36,7 +35,7 @@ class FileHandler(HandlerBase):
 
         :return:
         """
-        return stream(self.file)
+        return stream(self.target)
 
     @property
     def body(self) -> bytes:
@@ -85,9 +84,9 @@ class FileHandler(HandlerBase):
                                     headers=self.headers,
                                     data=self.data,
                                     body=self.body)
-                responses.append((url, self.file, status, None))
+                responses.append((url, self.target, status, None))
             except Exception as e:
-                responses.append((url, self.file, None, e))
+                responses.append((url, self.target, None, e))
         return responses
 
     async def handle(self):
@@ -109,7 +108,7 @@ class FileCreatedHandler(FileHandler):
     method = 'POST'
 
     def event_action(self, response: t.Any) -> t.Any:
-        self.watch.add_path(self.file)
+        self.watch.add_path(self.target)
         return response
 
 

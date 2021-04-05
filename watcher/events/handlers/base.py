@@ -5,7 +5,7 @@ import typing as t
 from watcher.common import EventStatus
 from watcher.type import Loop
 from watcher.exceptions import EVENT_ERROR
-
+from aiohttp.client_exceptions import ClientConnectionError
 if t.TYPE_CHECKING:
     from watcher.events import ChannelEventTypes, FileEventTypes
     from watcher.type import Loop
@@ -33,6 +33,7 @@ url_regex = re.compile(r'''
   )                          # end second capture group
  )?                          # ...or not.''', re.X)
 
+
 class HandlerBase:
 
     # Http Request method
@@ -41,6 +42,10 @@ class HandlerBase:
     def __init__(self, event: t.Union['ChannelEventTypes', 'FileEventTypes']):
 
         self.event = event
+
+    @property
+    def target(self):
+        return self.event.target
 
     @property
     def event_type(self):
@@ -62,16 +67,21 @@ class HandlerBase:
 
     async def handle_event(self) -> t.Any:
         responses = []
+        event_type = self.event_response[self.event_type]
         try:
             responses = await self.handle()
         except Exception as exc:
-            self._failure_logs()
+            logger.error(
+                "%s - %s[%s]",
+                event_type,
+                self.target,
+                str(exc)
+            )
             raise exc
 
         self.event_action(responses)
 
         errors = []
-        event_type = self.event_response[self.event_type]
         for response in responses:
             url, file, status_code, exc = response
             if exc or int(status_code) >= 500:
@@ -82,7 +92,7 @@ class HandlerBase:
                                    status_code=status_code,
                                    exception=exc)
                 continue
-            self._success_logs()
+            self._success_logs(url, file, event_type)
 
         if errors:
             raise EVENT_ERROR[self.event_type]("Cannot transmit %s" % errors[0][1])
@@ -120,16 +130,21 @@ class HandlerBase:
             return
         host, port = self._separate_url(url)
         # time - [event-type] - [fail] - [file] - [host:port]
-
         proj, file_name = file.split("/")[-2:]
-        logger.info(
-            "%s - %s's %s transmission is failed [%s:%s]",
+        reason = ''
+
+        if status_code == 500:
+            reason = "Internal server error"
+        elif isinstance(exception, ClientConnectionError):
+            reason = "Server not Found"
+        logger.error(
+            "%s - %s's %s transmission is failed [%s:%s %s]",
             event_type,
             proj,
-            file,
+            file_name,
             host,
             port,
-            extra={'color': "yello"})
+            reason)
 
         if exception:
             self._log_to_file(event_type, proj, file, host, port, exception)
@@ -137,28 +152,25 @@ class HandlerBase:
     def _log_to_file(self, event_type, proj, file, host, port, exception):
         pass
 
-    def _success_logs(self):
-        # if status_code == 200:
-        #     return
-        # host, port = self._separate_url(url)
-        # # time - [event-type] - [fail] - [file] - [host:port]
-        #
-        # proj, file_name = file.split("/")[-2:]
-        #
-        # error_logger.error(
-        #     "%s - %s - %s's %s transmission is failed - %s [%s:%s]",
-        #     event_type,
-        #     proj,
-        #     file,
-        #     host,
-        #     port)
-        pass
+    def _success_logs(self, url, file, event_type):
+
+        host, port = self._separate_url(url)
+        # time - [event-type] - [fail] - [file] - [host:port]
+
+        proj, file_name = file.split("/")[-2:]
+
+        logger.info(
+            "%s - %s's %s transmitted to [%s:%s]",
+            event_type,
+            proj,
+            file,
+            host,
+            port)
 
     def _separate_url(self, host):
         separated_url = url_regex.match(host)
         host, port = separated_url.group(2,3)
         return host, port
-
 
     event_response = {member.value: member.phrase  # type: ignore
                       for member in EventStatus.__members__.values()}

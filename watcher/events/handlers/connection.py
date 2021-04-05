@@ -14,11 +14,6 @@ class ChannelCreateHandler(HandlerBase):
     def __init__(self, event: 'CreateChannelEvent', **kwargs):
         super().__init__(event)
 
-
-    @property
-    def client_address(self):
-        return self.event.target
-
     @property
     def connector(self):
         return self.event.connector
@@ -51,9 +46,9 @@ class ChannelCreateHandler(HandlerBase):
                 int_to_str_size += len(data_per_file)
                 lens.append(int_to_str_size)
                 data += data_per_file
-                responses.append((self.client_address, path, 200, None))
+                responses.append((self.target, path, 200, None))
             except Exception as e:
-                responses.append((self.client_address, path, None, e))
+                responses.append((self.target, path, None, e))
 
         if not data:
             self.connector.inject_data(data, header=headers)
@@ -75,7 +70,7 @@ class ChannelCreateHandler(HandlerBase):
         :return:
         """
 
-        self.watch.add_channel(self.client_address)
+        self.watch.add_channel(self.target)
         return response
 
 
@@ -84,19 +79,15 @@ class ChannelDeleteHandler(HandlerBase):
     def __init__(self, event: 'DeleteChannelEvent'):
         super().__init__(event)
 
-    @property
-    def client_address(self):
-        return self.event.target
-
     async def handle(self):
 
-        return [(self.client_address, None, None, None)]
+        return [(self.target, None, None, None)]
 
     def event_action(self, response: t.Any) -> t.Any:
         """
         Method to handle event synchronously
         :return:
         """
-        self.watch.discard_channel(self.client_address)
+        self.watch.discard_channel(self.target)
         return response
 
