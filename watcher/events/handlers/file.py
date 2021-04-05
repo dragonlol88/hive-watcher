@@ -73,19 +73,26 @@ class FileHandler(HandlerBase):
         )
         return self.headers
 
+    async def _handle(self):
+        method = self.method
+        responses = []
+        async for url in self.channels:
+            try:
+                response, status = await \
+                    self.session.request(
+                                    method,
+                                    url,
+                                    headers=self.headers,
+                                    data=self.data,
+                                    body=self.body)
+                responses.append((url, self.file, status, None))
+            except Exception as e:
+                responses.append((url, self.file, None, e))
+        return responses
+
     async def handle(self):
 
-        responses = []
-        method = self.method
-
-        async for url in self.channels:
-            response = await self.session.request(
-                method,
-                url,
-                headers=self.headers,
-                data=self.data,
-                body=self.body)
-            responses.append(response)
+        responses = await self._handle()
         await self.session.close()
         return responses
 

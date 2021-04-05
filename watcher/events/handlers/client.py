@@ -68,7 +68,7 @@ class Session:
         async with command(url, **options) as resp:
             response = await resp.text()
 
-        return response
+        return response, resp.status
 
     def _create_session(self) -> None:
 

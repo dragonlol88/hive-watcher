@@ -23,7 +23,7 @@ class ChannelCreateHandler(HandlerBase):
     def connector(self):
         return self.event.connector
 
-    async def handle(self) -> None:
+    async def handle(self):
         """
 
         :return:
@@ -33,22 +33,27 @@ class ChannelCreateHandler(HandlerBase):
         paths = []
         data = b''
         int_to_str_size = 0
+        responses = []
         async for path in self.paths:
-            chunks = []
-            _stream = stream(path)
-            _is_stop = False
-            paths.append(path)
-            while not _is_stop:
-                try:
-                    next_stream = _stream.__anext__()
-                    chunk = await next_stream
-                    chunks.append(chunk)
-                except StopAsyncIteration:
-                    _is_stop = True
-            data_per_file = b''.join(chunks)
-            int_to_str_size += len(data_per_file)
-            lens.append(int_to_str_size)
-            data += data_per_file
+            try:
+                chunks = []
+                _stream = stream(path)
+                _is_stop = False
+                paths.append(path)
+                while not _is_stop:
+                    try:
+                        next_stream = _stream.__anext__()
+                        chunk = await next_stream
+                        chunks.append(chunk)
+                    except StopAsyncIteration:
+                        _is_stop = True
+                data_per_file = b''.join(chunks)
+                int_to_str_size += len(data_per_file)
+                lens.append(int_to_str_size)
+                data += data_per_file
+                responses.append((self.client_address, path, 200, None))
+            except Exception as e:
+                responses.append((self.client_address, path, None, e))
 
         if not data:
             self.connector.inject_data(data, header=headers)
@@ -62,7 +67,7 @@ class ChannelCreateHandler(HandlerBase):
                     })
         self.connector.inject_data(data, header=headers)
 
-        return
+        return responses
 
     def event_action(self, response: t.Any) -> t.Any:
         """
@@ -83,8 +88,9 @@ class ChannelDeleteHandler(HandlerBase):
     def client_address(self):
         return self.event.target
 
-    async def handle(self) -> None:
-        pass
+    async def handle(self):
+
+        return [(self.client_address, None, None, None)]
 
     def event_action(self, response: t.Any) -> t.Any:
         """
