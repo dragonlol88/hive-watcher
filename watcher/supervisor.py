@@ -7,6 +7,7 @@ import multiprocessing
 import typing as t
 
 from .hivewatcher import HiveWatcher
+from .loggy import configure_logging
 
 HANDLED_SIGNALS = (
     signal.SIGINT,  # Unix signal 2. Sent by Ctrl+C.
@@ -39,6 +40,7 @@ def get_subprocess(target, **kwargs):
 
 
 def subprocess_started(target, stdin_fileno):
+    configure_logging()
     if stdin_fileno:
         sys.stdin = os.fdopen(stdin_fileno)
 
