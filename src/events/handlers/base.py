@@ -172,7 +172,7 @@ class HandlerBase:
     @staticmethod
     def _separate_url(host):
         separated_url = url_regex.match(host)
-        host, port = separated_url.group(2,3)
+        host, port = separated_url.group(2, 3)
         return host, port
 
     event_response = {member.value: member.phrase  # type: ignore
