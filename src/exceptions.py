@@ -1,6 +1,4 @@
-from .common import EventStatus
-from aiohttp.client_exceptions import ClientConnectionError
-from aiohttp.client_exceptions import ClientResponseError
+from src.common import EventStatus
 
 
 class FilePaserError(Exception):
@@ -44,6 +42,36 @@ class EventError(Exception):
     Event error
     """
 
+
+class TransportError(Exception):
+    """
+    TransportError
+    """
+    @property
+    def status_code(self):
+        return self.args[0]
+
+    def address(self):
+        return self.args[1]
+
+    @property
+    def error(self):
+        return self.args[2]
+
+    @property
+    def info(self):
+        return self.args[3]
+
+class ConnectionError(TransportError):
+    """
+    Connection Error
+    """
+
+
+class ConnectionTimeout(ConnectionError):
+    """
+    Connection Timeout Error
+    """
 
 EVENT_ERROR = {
     EventStatus.FILE_DELETED : FileDeletedError,

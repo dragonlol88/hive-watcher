@@ -1,8 +1,8 @@
 import os
 import asyncio
 import pytest
-from watcher.wrapper.stream import AsyncJson
-from watcher.wrapper.stream import get_file_io
+from src.wrapper.stream import AsyncJson
+from src.wrapper.stream import get_file_io
 
 
 @pytest.fixture
@@ -12,7 +12,7 @@ def watch_path():
 
 @pytest.fixture
 def json_data():
-    return {"test1": 'hello world', 'test2': 'hello watcher'}
+    return {"test1": 'hello world', 'test2': 'hello awatcher'}
 
 
 async def write(path, data, mode):

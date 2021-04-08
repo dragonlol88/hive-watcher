@@ -6,7 +6,7 @@ import threading
 import typing as t
 import http.server
 import http.client
-from watcher.common import EventStatus
+from src.common import EventStatus
 from enum import IntEnum
 from werkzeug.wsgi import LimitedStream
 from werkzeug.serving import DechunkedInput                                                    #type: ignore
@@ -81,7 +81,6 @@ class TestHandler(http.server.BaseHTTPRequestHandler):
 
     def __init__(self, request, client_address, server: HTTPServer):
         super().__init__(request, client_address, server)
-
 
     def run_event(self):
 
@@ -358,7 +357,7 @@ class HttpRequest:
         :param method:
             HTTP Method: POST or DELETE.
         :param event_type:
-            Event type to send watcher server.
+            Event type to send awatcher server.
                 example)
                     DELETE_CHANNEL, CREATE_CHANNEL
         :return:
@@ -372,7 +371,7 @@ class HttpRequest:
 
     def create_connection(self):
         """
-        Method to make the connection with watcher.
+        Method to make the connection with awatcher.
 
         """
         method = self.connection_method

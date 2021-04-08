@@ -1,6 +1,6 @@
 from .base import EventBase
-from watcher.common import EventStatus
-import watcher.events.handlers as h
+from src.common import EventStatus
+import src.events.handlers as h
 
 
 class FileModifiedEvent(EventBase):

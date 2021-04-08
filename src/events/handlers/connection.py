@@ -2,7 +2,7 @@ import os
 import typing as t
 
 from . import HandlerBase
-from .file import stream
+from src.wrapper.stream import stream
 
 if t.TYPE_CHECKING:
     from ..connection import CreateChannelEvent
@@ -70,7 +70,7 @@ class ChannelCreateHandler(HandlerBase):
         :return:
         """
 
-        self.watch.add_channel(self.target)
+        self.manager.add_channel(self.target)
         return response
 
 
@@ -88,6 +88,6 @@ class ChannelDeleteHandler(HandlerBase):
         Method to handle event synchronously
         :return:
         """
-        self.watch.discard_channel(self.target)
+        self.manager.discard_channel(self.target)
         return response
 

@@ -1,5 +1,5 @@
 import typing as t
-from watcher.common import EventStatus
+from src.common import EventStatus
 
 from .base import EventBase
 from .file import (FileModifiedEvent,

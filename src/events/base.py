@@ -1,13 +1,9 @@
 import asyncio
 import typing as t
 
-from watcher.buffer import RemoteEventSymbol
-from watcher.buffer import LocalEventSymbol
-
 if t.TYPE_CHECKING:
-    from watcher.type import Loop
-    from watcher.hivewatcher import Watch
-    from watcher.buffer import EventSymbol
+    from src.awatcher import Loop
+    from src.awatcher import EventSymbol
     from .handlers import FileHandlerTypes, ChannelHandlerTypes
 
 
@@ -17,7 +13,8 @@ class EventBase:
     handler_class: t.Union[t.Any, 'FileHandlerTypes', 'ChannelHandlerTypes']
 
     def __init__(self,
-                 watch: 'Watch',
+                 manager,
+                 transporter,
                  symbol: 'EventSymbol',
                  loop: 'Loop',
                  handler_class: t.Optional[
@@ -26,9 +23,9 @@ class EventBase:
 
         self.loop = loop
         self.symbol = symbol
-        self.watch = watch
-        self._lock = self.watch.lock
-
+        self.transporter = transporter
+        self.manager = manager
+        self._lock = manager.lock
         if handler_class:
             self.handler_class = handler_class
         self.handler = self.handler_class(self, **kwargs)  # type: ignore

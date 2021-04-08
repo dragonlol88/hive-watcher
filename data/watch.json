@@ -1,9 +1,9 @@
 {
     "sample": {
         "paths": [
-            "./data/project/sample/test_project_synonym_210330.txt",
-            "./data/project/sample/test_project_stopword_210330.txt"
-        ],
-        "channels":[]
+            "./data/project/sample/test_project_synonym_210330.txt"],
+        "channels": [
+            "http://127.0.0.1:6666"
+        ]
     }
 }

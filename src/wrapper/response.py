@@ -9,7 +9,6 @@ class WatcherConnector:
         self.response_cls = response_cls
         self._injection_complete = threading.Event()
 
-
     def inject_data(self,
                     data: t.Union[t.Iterable[bytes], bytes, t.Iterable[str], str],
                     header: t.Dict[str, str] = None):
@@ -55,7 +54,6 @@ class WatcherConnector:
                                server.
         :return: an application iterator
         """
-
         self.wait_until_injection_complete()
         app_iter = self.response.__call__(environ, start_response)
         self.injection_clear()

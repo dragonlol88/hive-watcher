@@ -15,13 +15,13 @@ LOGGING_CONFIG = {
     "disable_existing_loggers": False,
     "formatters": {
         "default": {
-            "()": "watcher.loggy.DefaultFormatter",
+            "()": "src.loggy.DefaultFormatter",
             "fmt": "%(levelname)s - %(message)s (%(filename)s:%(lineno)d)",
             "datefmt": '%m/%d/%Y %I:%M:%S %p',
             "use_colors": True,
         },
         "file": {
-            "()": "watcher.loggy.FileFormatter",
+            "()": "src.loggy.FileFormatter",
             "fmt": "%(asctime)s - %(levelname)s - %(message)s (%(filename)s:%(lineno)d)",
             "datefmt": '%m/%d/%Y %I:%M:%S %p',
             "use_colors": False,
@@ -38,11 +38,11 @@ LOGGING_CONFIG = {
             {
                 "formatter": "file",
                 "class": "logging.FileHandler",
-                "filename": "watcher.log"
+                "filename": "awatcher.log"
             }
     },
     "loggers": {
-        "watcher": {"handlers": ["default"], "level": "INFO"}
+        "awatcher": {"handlers": ["default"], "level": "INFO"}
     }
 }
 

@@ -4,8 +4,8 @@ import queue
 import shutil
 import pytest
 
-from watcher.common import EventStatus
-from tests import run_test_emitter, run_test_server
+from src.common import EventStatus
+from . import run_test_emitter, run_test_server
 
 
 watcher = None

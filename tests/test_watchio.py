@@ -2,8 +2,8 @@ import os
 import asyncio
 import pytest
 
-from watcher.common import WatchIO
-from watcher.hivewatcher import Watch
+from src.common import WatchIO
+from src.watcher import Watch
 
 loop = asyncio.get_event_loop()
 

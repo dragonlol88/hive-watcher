@@ -2,15 +2,16 @@ import re
 import logging
 import typing as t
 
-from watcher.common import EventStatus
-from watcher.type import Loop
-from watcher.exceptions import EVENT_ERROR
+from src.common import EventStatus
+from src.type import Loop
+from src.exceptions import EVENT_ERROR
 from aiohttp.client_exceptions import ClientConnectionError
-if t.TYPE_CHECKING:
-    from watcher.events import ChannelEventTypes, FileEventTypes
-    from watcher.type import Loop
 
-logger = logging.getLogger('watcher')
+if t.TYPE_CHECKING:
+    from src.awatcher import ChannelEventTypes, FileEventTypes
+    from src.awatcher import Loop
+
+logger = logging.getLogger('awatcher')
 
 url_regex = re.compile(r'''
 (http://|https://)           # http scheme
@@ -43,6 +44,7 @@ class HandlerBase:
 
         self.event = event
 
+
     @property
     def target(self):
         return self.event.target
@@ -52,8 +54,29 @@ class HandlerBase:
         return self.event.event_type
 
     @property
-    def watch(self):
-        return self.event.watch
+    def manager(self):
+        return self.event.manager
+
+    @property
+    def transporter(self):
+        return self.event.transporter
+
+    @property
+    def loop(self) -> Loop:
+        """
+
+        :return:
+        """
+        return self.event.loop
+
+    @property
+    async def paths(self) -> t.AsyncGenerator:
+        """
+
+        :return:
+        """
+        for path in self.manager.paths:
+            yield path
 
     def event_action(self, response):
         """
@@ -83,14 +106,14 @@ class HandlerBase:
 
         errors = []
         for response in responses:
-            url, file, status_code, exc = response
-            if exc or int(status_code) >= 500:
-                errors.append((url, file, status_code, exc))
+            url, file, status_code, error = response
+            if error or int(status_code) >= 500:
+                errors.append((url, file, status_code, error))
                 self._failure_logs(url,
                                    file,
                                    event_type,
                                    status_code=status_code,
-                                   exception=exc)
+                                   exception=error)
                 continue
             self._success_logs(url, file, event_type)
 
@@ -98,33 +121,12 @@ class HandlerBase:
             raise EVENT_ERROR[self.event_type]("Cannot transmit %s" % errors[0][1])
         return responses
 
-    @property
-    def loop(self) -> Loop:
-        """
-
-        :return:
-        """
-        return self.event.loop
-
-    @property
-    async def channels(self) -> t.AsyncGenerator:
-        """
-
-        :return:
-        """
-        for channel in self.watch.channels:
-            yield channel
-
-    @property
-    async def paths(self) -> t.AsyncGenerator:
-        """
-
-        :return:
-        """
-        for path in self.watch.paths:
-            yield path
-
-    def _failure_logs(self, url, file, event_type, status_code=None, exception=None):
+    def _failure_logs(self,
+                      url: str,
+                      file: str,
+                      event_type: str,
+                      status_code: t.Optional[int] = None,
+                      exception: t.Optional[Exception] = None):
 
         if status_code == 200:
             return
@@ -152,7 +154,7 @@ class HandlerBase:
     def _log_to_file(self, event_type, proj, file, host, port, exception):
         pass
 
-    def _success_logs(self, url, file, event_type):
+    def _success_logs(self, url: str, file: str, event_type: str):
 
         host, port = self._separate_url(url)
         # time - [event-type] - [fail] - [file] - [host:port]
@@ -167,7 +169,8 @@ class HandlerBase:
             host,
             port)
 
-    def _separate_url(self, host):
+    @staticmethod
+    def _separate_url(host):
         separated_url = url_regex.match(host)
         host, port = separated_url.group(2,3)
         return host, port

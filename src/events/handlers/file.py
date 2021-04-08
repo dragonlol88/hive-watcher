@@ -2,10 +2,9 @@ import os
 import typing as t
 
 from . import HandlerBase
-from . import Session
 
-from watcher.common import EventStatus
-from watcher.wrapper.stream import stream
+from src.common import EventStatus
+from src.wrapper.stream import stream
 
 EVENT_SLEEP_TIME = 1e-5
 
@@ -27,7 +26,6 @@ class FileHandler(HandlerBase):
         super().__init__(event)
 
         self.headers = self.update_headers(self.target)
-        self.session = Session(loop=self.loop, headers=self.headers, **kwargs)
 
     @property
     def data(self):
@@ -72,27 +70,20 @@ class FileHandler(HandlerBase):
         )
         return self.headers
 
-    async def _handle(self):
+    async def handle(self):
         method = self.method
         responses = []
-        async for url in self.channels:
-            try:
-                response, status = await \
-                    self.session.request(
-                                    method,
-                                    url,
-                                    headers=self.headers,
-                                    data=self.data,
-                                    body=self.body)
-                responses.append((url, self.target, status, None))
-            except Exception as e:
-                responses.append((url, self.target, None, e))
-        return responses
+        try:
+            response = await self.transporter.transport(
+                method=method,
+                headers=self.headers,
+                data=self.data,
+                body=self.body)
+            responses.append(("http://127.0.0.1:6666/", self.target, 200, None))
+        except Exception as e:
+            responses.append(("http://127.0.0.1:6666/", self.target, None, e))
 
-    async def handle(self):
-
-        responses = await self._handle()
-        await self.session.close()
+        await self.transporter.close()
         return responses
 
     def event_action(self, response):
@@ -108,7 +99,7 @@ class FileCreatedHandler(FileHandler):
     method = 'POST'
 
     def event_action(self, response: t.Any) -> t.Any:
-        self.watch.add_path(self.target)
+        self.manager.add_path(self.target)
         return response
 
 
@@ -120,7 +111,7 @@ class FileDeletedHandler(FileHandler):
         return b''
 
     def event_action(self, response):
-        self.watch.discard_path(self.event.target)
+        self.manager.discard_path(self.target)
         return response
 
 

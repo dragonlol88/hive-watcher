@@ -1,20 +1,20 @@
-import typing as t
-
-import watcher.events.handlers as h
+import src.events.handlers as h
 
 from .base import EventBase
-from watcher.common import EventStatus
+from src.common import EventStatus
+
 
 class ChannelEvent(EventBase):
 
     def __init__(self,
-                 watch,
+                 manager,
+                 transporter,
                  symbol,
                  loop=None,
                  handler_class=None,
                  **kwargs):
         self.connector = symbol.connector
-        super().__init__(watch, symbol, loop, handler_class, **kwargs)
+        super().__init__(manager, transporter, symbol, loop, handler_class, **kwargs)
 
     @property
     def target(self):

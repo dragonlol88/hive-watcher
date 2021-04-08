@@ -7,8 +7,8 @@ import logging
 import multiprocessing
 import typing as t
 
-from .hivewatcher import HiveWatcher
-from .loggy import configure_logging
+from src.watcher import HiveWatcher
+from src.loggy import configure_logging
 
 HANDLED_SIGNALS = (
     signal.SIGINT,  # Unix signal 2. Sent by Ctrl+C.
@@ -28,7 +28,7 @@ else:
     context = multiprocessing
 
 
-logger = logging.getLogger('watcher')
+logger = logging.getLogger('awatcher')
 
 def get_subprocess(target, **kwargs):
     try:
@@ -106,7 +106,7 @@ class Supervisor:
 
         for sig in HANDLED_SIGNALS:
             signal.signal(sig, self.signal_handler)
-        # logging
+
         self.process = get_subprocess(self.target)
         self.process.start()
 
@@ -121,7 +121,6 @@ class Supervisor:
     def shutdown(self):
         self.process.join()
         logger.info("Stopping Supervisor [%d]", self.pid)
-        # logger
 
     def setup_variables_shared_with_watch(self):
 
@@ -131,9 +130,9 @@ class Supervisor:
                     var,
                     get_shared_variable(typ, init))
 
-            self._share_varaible(obj_name, var, self.__dict__[var])
+            self._share_variable(obj_name, var, self.__dict__[var])
 
-    def _share_varaible(self, target, var, value):
+    def _share_variable(self, target, var, value):
 
         if not hasattr(self, target):
             raise AttributeError(
