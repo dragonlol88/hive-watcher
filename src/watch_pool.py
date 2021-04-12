@@ -20,28 +20,28 @@ FILE_DELETED = c.EventSentinel.FILE_DELETED
 class WatchPool(object):
 
     def __init__(self,
-                 protocol_factory,
-                 event_queue,
                  config,
-                 write_period,
+                 event_queue,
+                 watcher,
                  loop=None):
 
+        self.watcher = watcher
         self.loop = loop
         self.event_queue = event_queue
+
         self.config = config
-        self.protocol_factory = protocol_factory
-        self.qtimeout = 0
+        self.protocol_factory = config.protocol_factory
         self.protocol_type = config.protoco_type
-        self.watch_bees = {}
-        self.event_count = 0
+        self._write_period = config.write_period
 
         self._waiter = []
         self._transports = []
+        self.watch_bees = {}
+        self.event_count = 0
+        self.qtimeout = 0
 
-        self._write_period = write_period
         self._should_serving_fut = None
         self._start_serving_fut = None
-
         self.__serving_task = None
         self.__stop_running = False
         self.__starttime = time.time()
@@ -278,6 +278,7 @@ class _TransportH11EventProcess(_EventProcess):
                          config, waiter)
         self.tasks = []
         self.packets = []
+        self.__transfer_complete = False
 
     def set_protocol(self, protocol):
         self._protocol = protocol
@@ -318,6 +319,8 @@ class _TransportH11EventProcess(_EventProcess):
         watchbee = self._watchbee
         callbacks = watchbee.WATCH_CALLBACK
         proj, typ, tg = event
+        if self.__transfer_complete:
+            raise RuntimeError("process is already complete.")
 
         try:
             cb = callbacks[typ]
@@ -337,25 +340,30 @@ class _TransportH11EventProcess(_EventProcess):
 
         finally:
             if self.__protocol_connected:
-                while self.tasks:
-                    task = self.tasks.pop()
-                    exc = None
-                    if task._state == c._FINISHED:
-                        exc = task.exception()
-                    if exc is not None:
-                        task.cancel()
-                        ch = task.get_name()
-                        watchbee.mark_dead(ch)
-                    if task._state == c._PENDING:
-                        self.tasks.append(task)
-                    else:
-                        ch = task.get_name()
-                        watchbee.mark_live(ch)
+                self._loop.create_task(self.is_complete_transport())
             else:
                 pass
 
             self._protocol.shutdown()
             self.__protocol_connected = False
+
+    async def is_complete_transport(self):
+        while self.tasks:
+            task = self.tasks.pop()
+            exc = None
+            if task._state == c._FINISHED:
+                exc = task.exception()
+            if exc is not None:
+                task.cancel()
+                ch = task.get_name()
+                watchbee.mark_dead(ch)
+            if task._state == c._PENDING:
+                self.tasks.append(task)
+            else:
+                ch = task.get_name()
+                watchbee.mark_live(ch)
+            await asyncio.sleep(0)
+        self.__transfer_complete = True
 
     def close(self):
         if self.handle is not None:

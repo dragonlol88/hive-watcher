@@ -1,7 +1,11 @@
 import os
+import asyncio
+
 from . import loggy
 from . import protocols
+from . import watch_pool
 
+from .loops.asyncio_loop import asyncio_setup
 
 FILE_NAME = {
             "manager": "managers.py",
@@ -21,7 +25,6 @@ class Config:
                  noti_host: str = None,
                  noti_port: int = None,
                  use_color: bool = True,
-                 loop: str = 'asyncio',
                  project_depth: int = 1,
                  connection_timeout: float = 300,
                  keep_alive_timeout: float = 5.0,
@@ -52,9 +55,6 @@ class Config:
         self.watchbee_store_path = None
         self.managed_files_store_path = None
         self.record_interval_minute = record_interval_minute
-
-        # loop
-        self.loop = loop
 
         # request
         self.connection_timeout = connection_timeout
@@ -88,8 +88,9 @@ class Config:
 
         self.configure_logging()
 
-    def create_emitter(self):
-        pass
+    def create_pool(self, watcher, event_queue):
+        pool = watch_pool.WatchPool(self, event_queue, watcher)
+        return pool
 
     def configure_logging(self):
         pass
@@ -127,5 +128,14 @@ class Config:
         self.manager_store_path = os.path.join()
         managed_files_store_path: str = None,
         log_path: str
+
+        # set loop
+        asyncio_setup()
+
+        loop = asyncio.get_running_loop()
+        if loop is None:
+            loop = asyncio.get_event_loop()
+        self.loop = loop
+
 
 

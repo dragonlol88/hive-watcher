@@ -115,14 +115,17 @@ class Sentinel:
 class EventNotify(common.BaseThread):
 
     def __init__(self,
-                 root_dir: str,
-                 project_depth: int,
-                 ignore_pattern: str,
-                 files: t.Dict[str, t.Tuple[str, float]],
+                 config,
                  event_queue: queue.Queue):
         super().__init__()
+
+        self.root_dir = config.root_dir
+        self.project_depth = config.project_depth
+        self.ignore_pattern = config.ignore_pattern
+        self.files = config.files
         self.event_queue = event_queue
-        self._sentinel = Sentinel(root_dir, project_depth, ignore_pattern, files)
+        self._sentinel = Sentinel(self.root_dir, self.project_depth,
+                                  self.ignore_pattern, self.files)
         self.start()
 
     def queue_event(self, event):

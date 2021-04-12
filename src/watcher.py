@@ -8,19 +8,15 @@ import typing as t
 import logging
 import multiprocessing
 
-from .io_ import FileIO
-from .type import Loop
 from .common import EventQueue
-from .watch_pool import ManagerPool
-from src.protocols.watch import HTTPManager
-from .transport import Transporter
-from .emitter import EventEmitter
+from .watch_pool import WatchPool
 from .loops.asyncio_loop import asyncio_setup
+from .buffer import EventNotify
 
 
 if t.TYPE_CHECKING:
     from src.events import EventBase as Event
-    from src.type import Task, Loop
+    from .common import Task, Loop
 
 DEFAULT_QUEUE_TIMEOUT = 0.01
 # From uvicorn
@@ -68,88 +64,25 @@ class WatcherState:
 class HiveWatcher:
 
     def __init__(self,
-                 host: str,
-                 port: int,
-                 manager_path: str,
-                 connection_class,
-                 files_path: str,
-                 loop_kind: str,
-                 root_dir: str,
-                 ignore_pattern: str,
-                 proj_depth: int = 1,
-                 timeout: t.Optional[float] = DEFAULT_QUEUE_TIMEOUT,
-                 record_interval_minute: t.Optional[float] = 5,
-                 max_event: t.Optional[int] = None,
-                 retry_on_timeout = False
+                 config
                  ):
 
         self._lock = threading.Lock()
         self._event_queue = EventQueue()
-
-        # queue get timeout
-        self._timeout = timeout
-
-        # notify parameter
-        self.host = host
-        self.port = port
-
-        self.root_dir = root_dir
-        self.ignore_pattern = ignore_pattern
-        self.proj_depth = proj_depth
-
-        self.files: t.Dict[str, t.Tuple[str, float]] = {}
-        self.files_path = files_path
-
-        # loop kind
-        self.loop_kind = loop_kind
-
-        # watches record_interval
-        self.record_interval_minute = record_interval_minute
-
-        # exit flag
-        self.should_exit = False
-        self.supervisor_exit = False
-        # exit event
-        self.exit_notify = threading.Event()
-
-        # max event number
-        # If event occur over the max event, restart watch continually
-        self.max_event = max_event
-
-        # storage place of watch information
-        self.manager_path = manager_path
-
-        # watch writer
-        # Write the watches in files to protect the remote servers information
-        # when awatcher down
-
-        self.file_io = FileIO(self.files_path, self.files)
-        # event count
-        self.event_count = None
-
-        # tasks
-        self.tasks: t.Set[t.Tuple[Task, Event]] = set()
-
-        # awatcher start time
-        self.start_time = time.time()
-
-        self.manager_pool_class = ManagerPool
-        self.manager_class = HTTPManager
-        self.transporter = Transporter(connection_class, retry_on_timeout)
-        self.retry_on_timeout = retry_on_timeout
+        self.config = config
 
     def watch(self):
-        _set_loop(self.loop_kind)
         loop = asyncio.get_event_loop()
         loop.run_until_complete(self.run())
 
     async def run(self):
         process_id = os.getpid()
-
         loop = asyncio.get_event_loop()
-        self.manager_pool = self.manager_pool_class(loop, self.manager_class, self.manager_path)
-        await self.manager_pool.read()
         # await self.file_io.read()
+
+        config = self.config
+        if config:
+            config.load()
 
         self.install_signal_handlers()
         loop = asyncio.get_event_loop()
@@ -157,12 +90,10 @@ class HiveWatcher:
         message = 'Started awatcher process [%d]'
         logger.info(message,
                     process_id)
+        await self.startup()
 
-        self.start_up_emitter()
         if self.should_exit:
             return
-
-        self.emit = loop.create_task(self.emit())
 
         await self.main_loop()
         await self.shutdown()
@@ -173,22 +104,21 @@ class HiveWatcher:
             process_id
         )
 
-    def start_up_emitter(self):
+    async def startup(self):
+
         loop = asyncio.get_event_loop()
         event_queue = self._event_queue
         timeout = self.timeout
-        params = {
-            "localnotify_root_dir": self.root_dir,
-            "localnotify_ignore_pattern": self.ignore_pattern,
-            "localnotify_proj_depth": self.proj_depth,
-            "localnotify_files": self.files,
-            "remotenotify_host": self.host,
-            "remotenotify_port": self.port
-        }
+        config = self.config
+        host = config.noti_host
+        port = config.noti_port
+
+        # 다시.................................
+        self.notify = EventNotify(config, event_queue)
+
         try:
-            self.emitter = EventEmitter(self, event_queue, loop, **params)
-            self.emitter.start()
-            # log emitter started message
+            self.pool = config.create_pool(event_queue, self, loop)
+            await self.pool.start()
         except Exception as e:
             message = "Fail initialize Hive Watcher Emitter [%s]"
             logger.error(
@@ -197,57 +127,32 @@ class HiveWatcher:
             )
             self.should_exit = True
 
-    async def emit(self):
-
-        count = 0
         self._log_started_message()
-        while not self.should_exit:
-            try:
-                task, event = self.get_event_queue()
-
-                # Put event in task set
-                self.tasks.add((task, event))
-                if self.event_count is not None:
-                    count += 1
-                    setattr(self.event_count, 'value', count)
-            except queue.Empty:
-                await asyncio.sleep(0.4)
 
     def _log_started_message(self):
         if not hasattr(self, 'scheme'):
             self.scheme = 'http'
 
+        port = self.config.noti_port
+        host = self.config.noti_host
+        root_dir = self.config.root_dir
         remote_notify_message = "Remote Notifier running on %s://%s:%d (Press Ctrl + C to quit)"
         logger.info(remote_notify_message,
                     self.scheme,
-                    self.host,
-                    self.port)
+                    host,
+                    port)
 
         local_notify_fmt = "Local Notifier is watching at %s (Press Ctrl + C to quit)"
-        logger.info(local_notify_fmt,
-                    self.root_dir)
+        logger.info(local_notify_fmt, root_dir)
 
     async def main_loop(self):
-        """
 
-        :return:
-        """
         should_exit = await self.buzz()
         while not should_exit:
-            now = time.time()
             await asyncio.sleep(0.1)
-            should_exit = await self.buzz(now)
+            should_exit = await self.buzz()
 
-    async def buzz(self, now=None):
-        """
-
-        :param now:
-            Current time
-        :return:
-        """
-        # Express start signal
-        if now is None:
-            return False
+    async def buzz(self):
 
         # pop task
         # If task is done, delete task
