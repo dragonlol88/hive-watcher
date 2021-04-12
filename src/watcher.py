@@ -6,12 +6,13 @@ import signal
 import threading
 import typing as t
 import logging
+import multiprocessing
 
 from .io_ import FileIO
 from .type import Loop
 from .common import EventQueue
-from .manager_pool import ManagerPool
-from .manager import HTTPManager
+from .watch_pool import ManagerPool
+from src.protocols.watch import HTTPManager
 from .transport import Transporter
 from .emitter import EventEmitter
 from .loops.asyncio_loop import asyncio_setup
@@ -55,6 +56,13 @@ async def execute_event(task, event):
     except Exception as e:
         # log 찍기
         print(e, event)
+
+
+class WatcherState:
+    tasks = set()
+    time_from_reload = time.time()
+    total_event = 0
+    should_reload_watcher = multiprocessing.Event()
 
 
 class HiveWatcher:

@@ -1,23 +1,10 @@
 import os
 import re
-import http
-import time
-import socket
 import queue
 import typing as t
 import selectors
-import threading
 
-from .common import EventStatus
-from .exceptions import FilePaserError
-
-from werkzeug.serving import ThreadedWSGIServer as WSGIServer
-from werkzeug.wrappers import Request as WSGIRequest
-from werkzeug.serving import WSGIRequestHandler
-from werkzeug.datastructures import EnvironHeaders
-from werkzeug.wrappers import Response
-
-from src.common import BaseThread, EventQueue
+from . import common
 
 if hasattr(selectors, 'PollSelector'):
     _ServerSelector = selectors.PollSelector
@@ -28,189 +15,28 @@ _TSSLContextArg = t.Optional[
     t.Union["ssl.SSLContext", t.Tuple[str, t.Optional[str]], "te.Literal['adhoc']"]            # type: ignore
 ]
 
-if t.TYPE_CHECKING:
-    from src.wrapper import WatcherConnector
-
-
 EVENT_TYPE_KEY = 'Event-Type'
 PROJECT_KEY    = 'Project-Name'
 EVENT_PERIOD = 0.5
 
+EventSentinel = common.EventSentinel
 
-class EventSymbol:
-
-    def __init__(self,
-                 proj: str,
-                 event_type: t.Optional[t.Union[EventStatus, int]] = None):
-
-        self.proj = proj
-        self._event_type = event_type
-
-    @property
-    def event_type(self) -> t.Optional[t.Union[EventStatus, int]]:
-        return self._event_type
-
-    @property
-    def key(self):
-        raise NotImplementedError
-
-    def __eq__(self, event) -> bool:
-        return self.key == event.key
-
-    def __ne__(self, event) -> bool:
-        return self.key == event.key
-
-    def __hash__(self):
-        return hash(self.key)
-
-
-class LocalEventSymbol(EventSymbol):
-
-    def __init__(self,
-                 proj: str,
-                 path: str,
-                 event_type: t.Optional[t.Union[EventStatus, int]] = None
-                 ):
-        super().__init__(proj, event_type)
-
-        self.path = path
-        if not self.parse_path(self.path):
-            # message
-            raise FilePaserError
-
-    def parse_path(self, path: str) -> bool:
-        """
-        Function to pull the file extention
-        :param path:
-            file path
-            ex)
-                /user/defined/directory/file.ext
-        :return:
-            file extension
-            ex)
-                .txt, , .xml, .json etc..
-        """
-
-        entities = path.split("/")
-
-        # Todo display log
-        try:
-            self.file_type = entities[-2]
-            self.ext = os.path.splitext(path)[-1]
-
-        except (IndexError, OSError):
-            return False
-
-        return True
-
-
-    @property
-    def key(self) -> t.Tuple[str, str]:
-        #key에 status도 추가해야 하지 않을까????
-
-        return self.proj, self.path
-
-
-class RemoteEventSymbol(EventSymbol):
-
-
-    def __init__(self,
-                 proj: str,
-                 environ: t.Dict[str, t.Any],
-                 connector: 'WatcherConnector',                                                  # type: ignore
-                 event_type: t.Optional[t.Union[EventStatus, int]] = None
-                 ):
-
-        super().__init__(proj, event_type)
-
-        self.environ = environ
-        self.request = WSGIRequest(environ)
-        self.connector = connector
-
-        if event_type is None:
-            self._event_type = int(self.headers.get('Event-Type'))                                # type: ignore
-
-    @property
-    def event_type(self) -> t.Optional[t.Union[EventStatus, int]]:
-        """
-        Propery of event type
-        :return:
-            event type
-        """
-        return self._event_type
-
-    @property
-    def headers(self) -> 'EnvironHeaders':
-        """
-        Property of request header
-        :return:
-        """
-
-        return self.request.headers
-
-    @property
-    def client_address(self) -> str:
-        """
-
-        :return:
-        """
-        addr = self.environ.get("HTTP_CLIENT_ADDRESS")
-        scheme = self.environ.get("wsgi.url_scheme", None)
-        if scheme is None:
-            scheme = 'http'
-        if not isinstance(addr, str):
-            addr = str(addr)
-        url = f'{scheme}://{addr}'
-        return url
-
-    @property
-    def key(self) -> t.Tuple[str, str]:
-        # key에 status도 추가해야 하지 않을까????
-
-        return self.proj, self.client_address
-
-
-class _Buffer(object):
-
-    def __init__(self):
-        self.symbols = set()
-
-    def run_buffer_once(self):
-        pass
-
-    def read_symbols(self):
-        self.run_buffer_once()
-        events = set()
-        while self.symbols:
-            es = self.symbols.pop()
-            events.add(es)
-        return events
-
-
-class LocalBuffer(_Buffer):
+class Sentinel:
     """
     ignore pattern is regex_pattern
     """
     def __init__(self,
                  root_path: str,
-                 proj_depth: int,
+                 project_depth: int,
                  ignore_pattern: str,
                  files: t.Dict[str, t.Tuple[str, float]]):
 
         super().__init__()
-        self._root_path = root_path
-        self._project_depth = proj_depth
-        self.files: t.Dict[str, t.Tuple[str, float]] = files
+        self.root_path = root_path
+        self.project_depth = project_depth
+        self.files = files
         self.ignore_pattern = ignore_pattern
-        self.symbols = set()
-
-    @property
-    def root_path(self) -> str:
-        return self._root_path
-
-    @property
-    def proj_depth(self) -> int:
-        return self._project_depth
+        self.events = set()
 
     def _knock_dir(self,
                    path: str,
@@ -219,7 +45,7 @@ class LocalBuffer(_Buffer):
                    proj: str = 'base'):
 
         # 코드 다시 고려해보기
-        if depth == self.proj_depth:
+        if depth == self.project_depth:
             proj = os.path.basename(path)
         depth += 1
 
@@ -244,13 +70,9 @@ class LocalBuffer(_Buffer):
         old_proj, old_mtime = self.files.get(path, (None, None))
 
         if not old_mtime:
-            self.symbols.add(LocalEventSymbol(proj,
-                                              path,
-                                              EventStatus.FILE_CREATED))
+            self.events.add((proj, path, common.EventSentinel.FILE_CREATED))
         elif new_mtime != old_mtime:
-            self.symbols.add(LocalEventSymbol(proj,
-                                              path,
-                                              EventStatus.FILE_MODIFIED))
+            self.events.add((proj, path, EventSentinel.FILE_MODIFIED))
 
     def _knock(self,
                path: str,
@@ -266,7 +88,7 @@ class LocalBuffer(_Buffer):
         new_files: t.Dict[str, t.Tuple[str, float]] = {}
         depth = 0
         try:
-            self._knock(self._root_path, new_files, depth)
+            self._knock(self.root_path, new_files, depth)
         except OSError as e:
             #Todo log 찍어야함
             raise e
@@ -275,148 +97,33 @@ class LocalBuffer(_Buffer):
         deleted_files = self.files.keys() - new_files.keys()
         for path in deleted_files:
             proj = self.files[path][0]
-            self.symbols.add(LocalEventSymbol(proj, path, EventStatus.FILE_DELETED))
+            self.events.add((proj, path, EventSentinel.FILE_DELETED))
             self.files.pop(path)
 
         # Files updated with new content
         self.files.update(new_files)
 
+    def read_event(self):
+        self.run_buffer_once()
 
-class RemoteBuffer(_Buffer, WSGIRequestHandler):
+        try:
+            return self.events.pop()
+        except KeyError:
+            pass
+
+
+class EventNotify(common.BaseThread):
 
     def __init__(self,
-                 request: 'Socket',                                                           # type: ignore
-                 client_address: t.Tuple[str, int],
-                 server: 'RemoteNotify',
-                 symbols):                                                     # type: ignore
-        _Buffer.__init__(self)
-        self.symbols = symbols
-
-        WSGIRequestHandler.__init__(self, request, client_address, server)
-
-    @property
-    def project_name(self) -> str:
-        """
-        Property of project name
-        :return:
-            Project name
-        """
-        return self.headers.get(PROJECT_KEY)
-
-    def parse_request(self) -> bool:
-        base_output = super().parse_request()
-
-        event_type = self.headers.get(EVENT_TYPE_KEY, None)
-        project_name = self.headers.get(PROJECT_KEY, None)
-
-        if not event_type or not project_name:
-            if not event_type and project_name:
-                message = '%s key' % EVENT_TYPE_KEY
-            elif event_type and not project_name:
-                message = '%s key' % PROJECT_KEY
-            else:
-                message = '%s, %s keys' % (PROJECT_KEY, EVENT_TYPE_KEY)
-            self.send_error(
-                http.HTTPStatus.BAD_REQUEST,
-                "Bad request header. "
-                "Header must contain (%s) " % message)
-            return False
-        return base_output
-
-    def handle_one_request(self) -> None:
-        try:
-            self.raw_requestline = self.rfile.readline(65537)
-            if not self.raw_requestline:
-                self.close_connection = True
-                return
-            if self.parse_request():
-                self.run_wsgi()
-        except (ConnectionError, socket.timeout) as e:
-            self._connection_dropped(e)
-        except Exception as e:
-            self.log_error("error: %s, ", e.__class__.__name__, e.args[0])
-
-    def run_wsgi(self):
-        """
-        :return:
-        """
-
-        self.server.app = self.connector = self.server.connector(Response)
-        self.environ = self.make_environ()
-        self.symbols.put(RemoteEventSymbol(self.project_name, self.environ, self.connector))
-        super().run_wsgi()
-
-    def run_buffer_once(self):
-        pass
-
-    def _connection_dropped(self, error):
-        pass
-
-
-class Notify:
-
-    __notifies__: t.Set[t.Union['RemoteNotify', 'LocalNotify']] = set()
-
-    def __init__(self, **params: t.Dict[str, t.Any]):
-        self.params = params
-        self.notifies = []
-
-        for notify in self.__notifies__:
-            noti_kwargs = {}
-            notify_name = notify.__name__.lower()                                               # type: ignore
-            for arg, value in self.params.items():
-                seperated_arg = arg.split("_")
-                cls_name = seperated_arg[0]
-                arg_name = '_'.join(seperated_arg[1:])
-                if notify_name == cls_name:
-                    noti_kwargs[arg_name] = value
-            buffer_queue: queue.Queue = queue.Queue()
-            self.notifies.append(notify(buffer_queue=buffer_queue, **noti_kwargs))              # type: ignore
-
-    @classmethod
-    def register(cls, notify: t.Union[t.Any, 'LocalNotify', 'RemoteNotify']) -> None:
-        """
-        Method to register notifies.
-        :param notify:
-
-        """
-        cls.__notifies__.add(notify)
-
-    def read_events(self) -> t.List[EventSymbol]:
-        """
-        Method to read the event from symbols.
-        """
-
-        symbols = []
-        for notify in self.notifies:
-            symbol = notify.read_event()
-            symbols.append(symbol)
-        return [symbol for symbol in symbols if isinstance(symbol, EventSymbol)]
-
-    def stop(self):
-        """
-        Method to stop Notify.
-        """
-        for notify in self.notifies:
-            notify.stop()
-
-
-class _Notify(BaseThread):
-
-    def __init__(self):
+                 root_dir: str,
+                 project_depth: int,
+                 ignore_pattern: str,
+                 files: t.Dict[str, t.Tuple[str, float]],
+                 event_queue: queue.Queue):
         super().__init__()
-        self._lock = threading.Lock()
-        self._event_queue = EventQueue()
-
-    def read_event(self) -> EventSymbol:
-        """
-        Method to read event from  queue.
-        """
-        try:
-            q = self._event_queue.get(timeout=0.001)
-        except queue.Empty:
-            q = ''
-        return q
+        self.event_queue = event_queue
+        self._sentinel = Sentinel(root_dir, project_depth, ignore_pattern, files)
+        self.start()
 
     def queue_event(self, event):
         """
@@ -424,106 +131,14 @@ class _Notify(BaseThread):
         :param event:
             Event to be enqueued.
         """
-        self._event_queue.put(event)
-
-    def run(self):
-        pass
-
-
-class LocalNotify(_Notify):
-
-    def __init__(self,
-                 root_dir: str,
-                 proj_depth: int,
-                 ignore_pattern: str,
-                 buffer_queue: queue.Queue,
-                 files: t.Dict[str, t.Tuple[str, float]]):
-        super().__init__()
-
-        self._buffer_queue = buffer_queue
-        self._buffer = LocalBuffer(root_dir, proj_depth, ignore_pattern, files)
-        self.start()
+        self.event_queue.put(event)
 
     def run(self):
         while self.should_keep_running():
-            with self._lock:
-                events = self._buffer.read_symbols()
-                # time sleep for excluding tempfile
-                for event in events:
+            is_event_occur = True
+            while is_event_occur:
+                event = self._sentinel.read_event()
+                if event is None:
+                    is_event_occur = False
+                else:
                     self.queue_event(event)
-            # time.sleep(EVENT_PERIOD)
-
-
-Notify.register(LocalNotify)
-
-
-class RemoteNotify(_Notify,  WSGIServer):
-
-    def __init__(self,
-                 host: str,
-                 port: int,
-                 connector: 'WatcherConnector',
-                 buffer_queue: queue.Queue,
-                 handler: t.Optional[t.Type["RemoteBuffer"]] = RemoteBuffer,
-                 passthrough_errors: bool = False,
-                 ssl_context: t.Optional[_TSSLContextArg] = None,
-                 fd: t.Optional[int] = None,
-                 ) -> None:
-
-        _Notify.__init__(self)
-        app = None
-        self.connector = connector
-        WSGIServer.__init__(self,
-                            host,
-                            port,
-                            app,
-                            handler,
-                            passthrough_errors,
-                            ssl_context,
-                            fd)
-
-        self._lock = threading.RLock()
-        self._event_queue = EventQueue()
-        self.symbols = EventQueue()
-        self.start()
-
-    def serve_forever(self, poll_interval=0.5):
-        try:
-            WSGIServer.serve_forever(self)
-        except KeyboardInterrupt:
-            pass
-        finally:
-            self.server_close()
-
-    def finish_request(self, request: 'Socket', client_address):                                 # type: ignore
-        """Finish one request by instantiating RequestHandlerClass."""
-        self.RequestHandlerClass(request, client_address, self, self.symbols)
-
-    def read_symbols(self):
-        events = set()
-        is_empty = False
-        while not is_empty:
-            try:
-                es = self.symbols.get(timeout=0)
-                events.add(es)
-            except queue.Empty:
-                is_empty = True
-        return events
-
-    def service_actions(self) -> None:
-        """
-        Method to read event from buffer queue and enqueue
-        event into even queue.
-        """
-
-        with self._lock:
-            events = self.read_symbols()
-            while events:
-                event = events.pop()
-                self.queue_event(event)
-
-    def run(self):
-        while self.should_keep_running():
-            self.serve_forever()
-
-Notify.register(RemoteNotify)

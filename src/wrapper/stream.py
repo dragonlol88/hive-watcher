@@ -108,7 +108,7 @@ class AsyncJson:
                    mode: t.Optional[str] = 'w',
                    **kw):
         """
-        Coroutine to save data in json formation.
+        Coroutine to save sample in json formation.
 
         :param obj:
             Data to be saved in json formation.
@@ -155,7 +155,7 @@ class AsyncJson:
                    *,
                    mode='rb'):
         """
-        Coroutine to load data to json formation.
+        Coroutine to load sample to json formation.
 
         :param fp:
             File object.

@@ -1,4 +1,4 @@
-from src.common import EventStatus
+from .common import EventSentinel
 
 
 class FilePaserError(Exception):
@@ -62,6 +62,7 @@ class TransportError(Exception):
     def info(self):
         return self.args[3]
 
+
 class ConnectionError(TransportError):
     """
     Connection Error
@@ -73,10 +74,11 @@ class ConnectionTimeout(ConnectionError):
     Connection Timeout Error
     """
 
+
 EVENT_ERROR = {
-    EventStatus.FILE_DELETED : FileDeletedError,
-    EventStatus.FILE_CREATED: FileCreatedError,
-    EventStatus.FILE_MODIFIED: FileModifiedError,
-    EventStatus.CREATE_CHANNEL: ChannelCreatedError,
-    EventStatus.DELETE_CHANNEL: ChannelDeletedError
+    EventSentinel.FILE_DELETED : FileDeletedError,
+    EventSentinel.FILE_CREATED: FileCreatedError,
+    EventSentinel.FILE_MODIFIED: FileModifiedError,
+    EventSentinel.CREATE_CHANNEL: ChannelCreatedError,
+    EventSentinel.DELETE_CHANNEL: ChannelDeletedError
 }

@@ -2,8 +2,7 @@ import asyncio
 import typing as t
 
 if t.TYPE_CHECKING:
-    from src.awatcher import Loop
-    from src.awatcher import EventSymbol
+    from ..type import Loop
     from .handlers import FileHandlerTypes, ChannelHandlerTypes
 
 
@@ -42,7 +41,7 @@ class EventBase:
             raise TypeError('handle_event method must be coroutine.')
         return await handle
 
-    async def __call__(self) -> t.Any:
+    async def run_event(self) -> t.Any:
         exception = None
         async with self._lock:
             try:

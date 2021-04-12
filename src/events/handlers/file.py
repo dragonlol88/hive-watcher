@@ -3,7 +3,7 @@ import typing as t
 
 from . import HandlerBase
 
-from src.common import EventStatus
+from src.common import EventSentinel
 from src.wrapper.stream import stream
 
 EVENT_SLEEP_TIME = 1e-5
@@ -55,9 +55,9 @@ class FileHandler(HandlerBase):
 
         if not isinstance(event_type_num, str):
             event_type_num = str(event_type_num)
-        if self.event_type in (EventStatus.FILE_CREATED,
-                               EventStatus.FILE_MODIFIED,
-                               EventStatus.FILE_DELETED):
+        if self.event_type in (EventSentinel.FILE_CREATED,
+                               EventSentinel.FILE_MODIFIED,
+                               EventSentinel.FILE_DELETED):
             content_type = 'application/octet-stream'
         else:
             raise ValueError("%s not supported event" % (repr(self.event_type)))

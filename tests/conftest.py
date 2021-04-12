@@ -13,7 +13,7 @@ def client_address():
 
 @pytest.fixture
 def root_dir():
-    return "./data/project"
+    return "./sample/project"
 
 
 @pytest.fixture

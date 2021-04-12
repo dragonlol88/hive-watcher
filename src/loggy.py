@@ -54,6 +54,7 @@ COLORS = {
         'bold_red': "\x1b[31;1m",
 
     }
+
 RESET = "\x1b[0m"
 
 

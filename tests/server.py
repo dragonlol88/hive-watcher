@@ -212,9 +212,9 @@ class Response:
 
     def get_data(self, as_text: bool = False) -> t.Union[t.ByteString, t.Text]:
         """
-        Method to get data from stream.
+        Method to get sample from stream.
         :param as_text:
-            Whether to get data in the string form
+            Whether to get sample in the string form
         """
         stream = self.stream
         rv = stream.read()

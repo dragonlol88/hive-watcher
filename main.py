@@ -2,15 +2,15 @@
 from src.watcher import HiveWatcher
 from src.supervisor import Supervisor
 from src.loggy import configure_logging
-from src.connection import HTTPConnection
+from src.protocols.connection import HTTPConnection
 if __name__ == '__main__':
     configure_logging()
-    watch_path = './data/watch.json'
-    files_path = './data/files.json'
+    watch_path = 'sample/watch.json'
+    files_path = 'sample/files.json'
     loop_kind = 'asyncio'
     remotenotify_host = '127.0.0.1'
     remotenotify_port = 7777
-    localnotify_root_dir = "./data/project"
+    localnotify_root_dir = "sample/project"
     localnotify_ignore_pattern = '.*swp|4913|.*~|.*swx:'
     localnotify_proj_depth = 1
     timeout = 0.1

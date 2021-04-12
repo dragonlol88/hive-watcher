@@ -1,29 +1,31 @@
+import os
 import asyncio
 import aiohttp
 import urllib3
 import typing as t
 
+from . import common as c
+from . import exceptions as e
+from . import watchbee
+from .wrapper.stream import stream
 
-from .type import Loop
-from .utils import get_running_loop
-from .exceptions import (
-    TransportError,
-    ConnectionError,
-    ConnectionTimeout
-)
 from aiohttp.client_exceptions import ClientConnectionError
 
 
-class Connection(object):
+class _Protocol(object):
 
-    def __init__(self, loop, **kwargs):
+    def __init__(self, loop, config, **kwargs):
         self.loop = loop
+        self.config = config
         self._done = False
 
-    async def transport(self, **kwargs):
-        pass
+    def connection_made(self, transport):
+        self._transport = transport
 
-    async def close(self):
+    def receive_event(self, channel, typ, path):
+        raise NotImplementedError
+
+    def close(self):
         pass
 
     @property
@@ -34,13 +36,14 @@ class Connection(object):
         pass
 
 
-class HTTPConnection(Connection):
+class H11Protocol(_Protocol):
 
     connection_class = aiohttp.ClientSession
+    method = 'POST'
 
     def __init__(self,
-                 loop: Loop,
-                 address: str,
+                 loop: c.Loop,
+                 config,
                  *,
                  headers: t.Dict[str, str] = {},
                  http_auth: t.Optional[t.Union[t.Tuple[str, str],str]] = None,
@@ -50,11 +53,10 @@ class HTTPConnection(Connection):
                  total_connections: float = 30,
                  **kwargs
                  ):
-        super().__init__(self)
+        super().__init__(loop, config)
         if not headers:
             headers = {}
-        self.address = address
-        self.loop = loop
+        self._loop = loop
         self.timeout = timeout or 300
         self.read_timeout = read_timeout or 300
         self.keepalive_timeout = keepalive_timeout
@@ -73,59 +75,52 @@ class HTTPConnection(Connection):
             headers.update({'keep-alive': keep_alive})
         self.headers = headers
 
-        if not self.loop:
-            self.loop = get_running_loop()
+        self.connection = self._create_connection()
 
-        self.connection = self.connection_class(
+    def _create_connection(self):
+        if not self._loop:
+            self._loop = c.get_running_loop()
+
+        connection = self.connection_class(
                                         loop=self.loop,
                                         auto_decompress=self.auto_decompress,
                                         headers=self.headers
                                     )
 
-    async def transport(self,
-                        method: str,
-                        *,
-                        headers: t.Dict[str, str] = None,
-                        data: t.Optional[t.Union[bytes, t.AsyncGenerator]] = None,
-                        body: t.Optional[t.Union[t.Any, bytes]] = None) -> t.Any:
+        return connection
 
-        options = {}
-        address = self.address
-        if headers:
-            self.headers.update(headers)
-        if data:
-            options.update({'data': data})
-        if body:
-            options.update({'body': body})
-        method = method.lower()
-        if not hasattr(self.connection, method):
-            raise AttributeError
-        command = getattr(self.connection, method)
+    def receive_event(self, channel, typ, path):
+        loop = self._loop
+        method = self.method
+        h11packet = self._transport.read_packet(typ, path, method)
+        h11packet.update({"url": channel})
+        return loop.create_task(self.transport(h11packet))
+
+    async def transport(self, packet) -> t.Any:
+        packet = packet.packet
+        address = packet.get('url')
         try:
-            async with command(address, headers=self.headers, **options) as resp:
+            async with self.connection.request(**packet) as resp:
                 raw_data = await resp.read()
                 status_code = resp.status
                 headers = resp.headers
-        except Exception as e:
-            if isinstance(e, ClientConnectionError):
-                raise ConnectionError("N/A", address, e, str(e))
+
+        except Exception as exc:
+            if isinstance(exc, ClientConnectionError):
+                raise ConnectionError("N/A", address, exc, str(exc))
             elif isinstance(e, asyncio.exceptions.TimeoutError):
-                raise ConnectionTimeout("TIMEOUT", address, e, str(e))
-            raise TransportError("N/A", address, e, str(e))
+                raise e.ConnectionTimeout("TIMEOUT", address, exc, str(exc))
+            raise e.TransportError("N/A", address, exc, str(exc))
+
+        self._transport.write_from_packet(raw_data, status_code, headers)
 
         if status_code >= 400:
             self._raise_error(status_code, raw_data)
-        return raw_data, headers, status_code
 
-    async def close(self) -> None:
-        """
-        Close session
-        :return:
-        """
-        await self.connection.close()
+    def shutdown(self) -> None:
+        self._loop.create_task(self.connection.close())
 
-
-class SSHConnection(Connection):
+class SSHProtocol(_Protocol):
 
     def __init__(self, loop):
         super().__init__(loop)
@@ -135,3 +130,5 @@ class SSHConnection(Connection):
 
     async def close(self):
         pass
+
+

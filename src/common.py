@@ -1,10 +1,54 @@
+# mypy: ignore-errors
 import queue
+import asyncio
 import threading
+import typing as t
 
 from enum import IntEnum
+from .wrapper.stream import get_file_io
+from .wrapper.stream import AsyncJson
 
 DEFAULT_QUEUE_TIMEOUT = 1
 QUEUE_MAX_SIZE = 4200
+
+try:
+    from asyncio import get_running_loop
+except ImportError:
+
+    def get_running_loop():
+        loop = asyncio.get_event_loop()
+        if not loop.is_running():
+            raise RuntimeError("no running event loop")
+        return loop
+
+# asyncio types
+Task = asyncio.Task
+Future = asyncio.Future
+AsyncEvent = asyncio.Event
+Loop = asyncio.AbstractEventLoop
+
+try:
+    from asyncio.base_futures import _PENDING, _CANCELLED, _FINISHED
+except:
+    _PENDING  = 'PENDING'
+    _CANCELLED = 'CANCELLED'
+    _FINISHED  = 'FINISHED'
+
+
+class EventSentinel(IntEnum):
+
+    def __new__(cls, value, phrase):
+        obj = int.__new__(cls, value)
+        obj._value_ = value
+
+        obj.phrase = phrase
+        return obj
+
+    FILE_DELETED = (1, 'File Deleted')
+    FILE_CREATED = (2, 'File Created')
+    FILE_MODIFIED = (3, 'File Modified')
+    CREATE_CHANNEL = (4, 'Channel Created')
+    DELETE_CHANNEL = (5, 'Channel Deleted')
 
 
 class UniqueList(list):
@@ -26,22 +70,6 @@ class UniqueList(list):
 
     def __hash__(self):
         return id(self)
-
-
-class EventStatus(IntEnum):
-
-    def __new__(cls, value, phrase):
-        obj = int.__new__(cls, value)
-        obj._value_ = value
-
-        obj.phrase = phrase
-        return obj
-
-    FILE_DELETED   = (1, 'File Deleted')
-    FILE_CREATED   = (2, 'File Created')
-    FILE_MODIFIED  = (3, 'File Modified')
-    CREATE_CHANNEL = (4, 'Channel Created')
-    DELETE_CHANNEL = (5, 'Channel Deleted')
 
 
 class EventQueue(queue.Queue):
@@ -97,3 +125,64 @@ class BaseThread(threading.Thread):
         threading.Thread.start(self)
 
 
+class JsonIO:
+
+    def __init__(self, path: str):
+        self.path = path
+
+    async def dump_to_json(self, data: t.Dict[str, t.Any]) -> None:
+        """
+
+        :param data:
+        :return:
+        """
+        json = AsyncJson()
+        async with get_file_io(self.path, 'w') as af:
+            await json.dump(data, af)
+
+    async def load_to_json(self) -> t.Dict[str, t.Dict[str, t.Any]]:
+        """
+        Load sample from json file.
+        :return:
+            Dictionary object. key is project.
+        """
+        json = AsyncJson()
+        try:
+            async with get_file_io(self.path, 'r') as af:
+                data = await json.load(af)
+        except FileNotFoundError:
+            data = {}
+        return data
+
+
+class FileIO(JsonIO):
+
+    def __init__(self, path: str, files: t.Dict[str, t.Any]):
+        super().__init__(path)
+        self.files = files
+
+    async def write(self):
+        await self.dump_to_json(self.files)
+
+    async def read(self):
+        data = await self.load_to_json()
+        self.files.update(data)
+
+
+class _EventBase(str):
+    def __repr__(self):
+        return self.__name__
+
+
+def make_event(name):
+    cls = _EventBase(name)
+    cls.__class__ = type(cls)
+    return cls
+
+
+DISCARD_CHANNEL = make_event("add_channel")
+DISCARD_PATH = make_event("discard_path")
+ADD_CHANNEL = make_event("add_channel")
+ADD_PATH = make_event("add_path")
+TRANSPORT_FILE = make_event("transport_file")
+EOF = make_event('EOF')

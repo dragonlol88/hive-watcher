@@ -2,14 +2,11 @@ import re
 import logging
 import typing as t
 
-from src.common import EventStatus
+from src.common import EventSentinel
 from src.type import Loop
 from src.exceptions import EVENT_ERROR
 from aiohttp.client_exceptions import ClientConnectionError
 
-if t.TYPE_CHECKING:
-    from src.awatcher import ChannelEventTypes, FileEventTypes
-    from src.awatcher import Loop
 
 logger = logging.getLogger('awatcher')
 
@@ -40,7 +37,7 @@ class HandlerBase:
     # Http Request method
     method = 'POST'
 
-    def __init__(self, event: t.Union['ChannelEventTypes', 'FileEventTypes']):
+    def __init__(self, event):
 
         self.event = event
 
@@ -176,4 +173,4 @@ class HandlerBase:
         return host, port
 
     event_response = {member.value: member.phrase  # type: ignore
-                      for member in EventStatus.__members__.values()}
+                      for member in EventSentinel.__members__.values()}

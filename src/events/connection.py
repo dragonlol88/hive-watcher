@@ -1,7 +1,7 @@
 import src.events.handlers as h
 
 from .base import EventBase
-from src.common import EventStatus
+from ..common import EventSentinel
 
 
 class ChannelEvent(EventBase):
@@ -22,10 +22,10 @@ class ChannelEvent(EventBase):
 
 
 class CreateChannelEvent(ChannelEvent):
-    event_type = EventStatus.CREATE_CHANNEL
+    event_type = EventSentinel.CREATE_CHANNEL
     handler_class = h.ChannelCreateHandler
 
 
 class DeleteChannelEvent(ChannelEvent):
-    event_type = EventStatus.DELETE_CHANNEL
+    event_type = EventSentinel.DELETE_CHANNEL
     handler_class = h.ChannelDeleteHandler
