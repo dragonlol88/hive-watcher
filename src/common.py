@@ -177,6 +177,7 @@ class _EventBase(str):
 def make_event(name):
     cls = _EventBase(name)
     cls.__class__ = type(cls)
+    cls.__name__ = name
     return cls
 
 

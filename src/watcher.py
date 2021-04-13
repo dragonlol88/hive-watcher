@@ -12,10 +12,9 @@ from .common import EventQueue
 from .watch_pool import WatchPool
 from .loops.asyncio_loop import asyncio_setup
 from .buffer import EventNotify
-
+from .common import Loop
 
 if t.TYPE_CHECKING:
-    from src.events import EventBase as Event
     from .common import Task, Loop
 
 DEFAULT_QUEUE_TIMEOUT = 0.01
@@ -69,6 +68,7 @@ class HiveWatcher:
 
         self._lock = threading.Lock()
         self._event_queue = EventQueue()
+        self.should_exit = False
         self.config = config
 
     def watch(self):
@@ -85,16 +85,14 @@ class HiveWatcher:
             config.load()
 
         self.install_signal_handlers()
-        loop = asyncio.get_event_loop()
-
         message = 'Started awatcher process [%d]'
         logger.info(message,
                     process_id)
+
         await self.startup()
 
         if self.should_exit:
             return
-
         await self.main_loop()
         await self.shutdown()
 
@@ -108,7 +106,6 @@ class HiveWatcher:
 
         loop = asyncio.get_event_loop()
         event_queue = self._event_queue
-        timeout = self.timeout
         config = self.config
         host = config.noti_host
         port = config.noti_port
@@ -116,16 +113,16 @@ class HiveWatcher:
         # 다시.................................
         self.notify = EventNotify(config, event_queue)
 
-        try:
-            self.pool = config.create_pool(event_queue, self, loop)
-            await self.pool.start()
-        except Exception as e:
-            message = "Fail initialize Hive Watcher Emitter [%s]"
-            logger.error(
-                message,
-                str(e)
-            )
-            self.should_exit = True
+        # try:
+        self.pool = config.create_pool(self, event_queue)
+        await self.pool.start()
+        # except Exception as e:
+        #     message = "Fail initialize Hive Watcher Emitter [%s]"
+        #     logger.error(
+        #         message,
+        #         str(e)
+        #     )
+        #     self.should_exit = True
 
         self._log_started_message()
 
@@ -135,7 +132,7 @@ class HiveWatcher:
 
         port = self.config.noti_port
         host = self.config.noti_host
-        root_dir = self.config.root_dir
+        root_dir = self.config.lookup_dir
         remote_notify_message = "Remote Notifier running on %s://%s:%d (Press Ctrl + C to quit)"
         logger.info(remote_notify_message,
                     self.scheme,
@@ -146,7 +143,6 @@ class HiveWatcher:
         logger.info(local_notify_fmt, root_dir)
 
     async def main_loop(self):
-
         should_exit = await self.buzz()
         while not should_exit:
             await asyncio.sleep(0.1)
@@ -156,24 +152,23 @@ class HiveWatcher:
 
         # pop task
         # If task is done, delete task
-        # If task is not complicated, put task in task set
-        while self.tasks:
-            task, event = self.tasks.pop()
-            if task.done():
-                # task terminate
-                del task
-            else:
-                self.tasks.add((task, event))
-
-        # Write watch information in files
-        if now - self.start_time >= self.record_interval_minute * 60:
-            # await self.manager_pool.write()
-            # await self.file_io.write()
-            self.start_time = now
+        # # If task is not complicated, put task in task set
+        # while self.tasks:
+        #     task, event = self.tasks.pop()
+        #     if task.done():
+        #         # task terminate
+        #         del task
+        #     else:
+        #         self.tasks.add((task, event))
+        #
+        # # Write watch information in files
+        # if now - self.start_time >= self.record_interval_minute * 60:
+        #     # await self.manager_pool.write()
+        #     # await self.file_io.write()
+        #     self.start_time = now
 
         if self.should_exit:
             return True
-
         return False
 
     async def shutdown(self):
@@ -182,20 +177,20 @@ class HiveWatcher:
         """
         # Todo 로그찍기
         # First, stop the emitter processing.
-        self.emitter.stop()
-
-        # Gather events from event_queue and put event in tasks set.
-        while True:
-            try:
-                task, event = self.get_event_queue()
-            except queue.Empty:
-                break
-            self.tasks.add((task, event))
-
-        # Complete additional events.
-        while self.tasks:
-            task, event = self.tasks.pop()
-            await execute_event(task, event)
+        self.pool.stop()
+        #
+        # # Gather events from event_queue and put event in tasks set.
+        # while True:
+        #     try:
+        #         task, event = self.get_event_queue()
+        #     except queue.Empty:
+        #         break
+        #     self.tasks.add((task, event))
+        #
+        # # Complete additional events.
+        # while self.tasks:
+        #     task, event = self.tasks.pop()
+        #     await execute_event(task, event)
 
         # Record watches and file information.
         # await self.manager_pool.write()

@@ -4,7 +4,7 @@ import queue
 import typing as t
 import selectors
 
-from . import common
+from . import common as c
 
 if hasattr(selectors, 'PollSelector'):
     _ServerSelector = selectors.PollSelector
@@ -17,9 +17,12 @@ _TSSLContextArg = t.Optional[
 
 EVENT_TYPE_KEY = 'Event-Type'
 PROJECT_KEY    = 'Project-Name'
-EVENT_PERIOD = 0.5
 
-EventSentinel = common.EventSentinel
+
+FILE_CREATED   = c.EventSentinel.FILE_CREATED
+FILE_DELETED   = c.EventSentinel.FILE_DELETED
+FILE_MODIFIED  = c.EventSentinel.FILE_MODIFIED
+
 
 class Sentinel:
     """
@@ -68,11 +71,10 @@ class Sentinel:
         new_mtime = stat.st_mtime
         new_files[path] = (proj, new_mtime)
         old_proj, old_mtime = self.files.get(path, (None, None))
-
         if not old_mtime:
-            self.events.add((proj, path, common.EventSentinel.FILE_CREATED))
+            self.events.add((proj, path, FILE_CREATED))
         elif new_mtime != old_mtime:
-            self.events.add((proj, path, EventSentinel.FILE_MODIFIED))
+            self.events.add((proj, path, FILE_MODIFIED))
 
     def _knock(self,
                path: str,
@@ -97,7 +99,7 @@ class Sentinel:
         deleted_files = self.files.keys() - new_files.keys()
         for path in deleted_files:
             proj = self.files[path][0]
-            self.events.add((proj, path, EventSentinel.FILE_DELETED))
+            self.events.add((proj, path, FILE_DELETED))
             self.files.pop(path)
 
         # Files updated with new content
@@ -112,14 +114,14 @@ class Sentinel:
             pass
 
 
-class EventNotify(common.BaseThread):
+class EventNotify(c.BaseThread):
 
     def __init__(self,
                  config,
                  event_queue: queue.Queue):
         super().__init__()
 
-        self.root_dir = config.root_dir
+        self.root_dir = config.lookup_dir
         self.project_depth = config.project_depth
         self.ignore_pattern = config.ignore_pattern
         self.files = config.files

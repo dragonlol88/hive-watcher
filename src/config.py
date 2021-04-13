@@ -21,9 +21,9 @@ class Config:
                  *,
                  ignore_pattern: str = '.*swp|4913|.*~|.*swx:',
                  log_config=loggy.LOGGING_CONFIG,
-                 transfer_protocol: str = None,
-                 noti_host: str = None,
-                 noti_port: int = None,
+                 protocol_type: str = 'h11',
+                 noti_host: str = '127.0.0.1',
+                 noti_port: int = 6666,
                  use_color: bool = True,
                  project_depth: int = 1,
                  connection_timeout: float = 300,
@@ -41,7 +41,7 @@ class Config:
 
         # mode (watcher or agent)
         self.mode = mode
-
+        self.files = {}
         # local notify parameter
         self.lookup_dir = lookup_dir
         self.ignore_pattern = ignore_pattern
@@ -53,7 +53,7 @@ class Config:
 
         # managed files and channel
         self.watchbee_store_path = None
-        self.managed_files_store_path = None
+        self.files_store_path = None
         self.record_interval_minute = record_interval_minute
 
         # request
@@ -78,7 +78,7 @@ class Config:
         self.ssh_deploy_servers = ssh_deploy_servers
 
         # connection protocol
-        self.transfer_protocol = transfer_protocol
+        self.protocol_type = protocol_type
         self.protocol_factory = None
 
         # transporter
@@ -109,13 +109,13 @@ class Config:
         # The 'agent' mode have only ssh protocol to deploy files to multiple servers
         # if not, agent only have a role which deploy files in itself server.
         if self.mode == 'agent':
-            assert self.transfer_protocol == 'ssh' or\
-                   self.transfer_protocol is None
+            assert self.protocol_type == 'ssh' or\
+                   self.protocol_type is None
 
         # Connection protocol is defined.
         # Connection HTTP or SSH
-        if self.transfer_protocol is not None:
-            if self.transfer_protocol == 'ssh':
+        if self.protocol_type is not None:
+            if self.protocol_type == 'ssh':
                 self.protocol_factory = protocols.SSHProtocol
             else:
                 self.protocol_factory = protocols.H11Protocol
@@ -125,9 +125,9 @@ class Config:
         if not os.path.exists(inspect_dir):
             os.mkdir(inspect_dir)
 
-        self.manager_store_path = os.path.join()
-        managed_files_store_path: str = None,
-        log_path: str
+        self.watchbee_store_path = os.path.join(inspect_dir, 'watchbee.json')
+        self.files_store_path=os.path.join(inspect_dir, 'watchbee.json')
+        # log_path: str
 
         # set loop
         asyncio_setup()

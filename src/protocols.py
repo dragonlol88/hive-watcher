@@ -92,19 +92,20 @@ class H11Protocol(_Protocol):
     def receive_event(self, channel, typ, path):
         loop = self._loop
         method = self.method
-        h11packet = self._transport.read_packet(typ, path, method)
-        h11packet.update({"url": channel})
-        return loop.create_task(self.transport(h11packet))
+        h11packet = self._transport.read_packet(typ, path, channel, method)
+        task = loop.create_task(self.transport(h11packet))
+        task.set_name(channel)
+        return task
 
     async def transport(self, packet) -> t.Any:
-        packet = packet.packet
-        address = packet.get('url')
+        send_packet = packet.send_packet
+        address = send_packet.get('url')
+
         try:
-            async with self.connection.request(**packet) as resp:
+            async with self.connection.request(**send_packet) as resp:
                 raw_data = await resp.read()
                 status_code = resp.status
                 headers = resp.headers
-
         except Exception as exc:
             if isinstance(exc, ClientConnectionError):
                 raise ConnectionError("N/A", address, exc, str(exc))
@@ -112,13 +113,23 @@ class H11Protocol(_Protocol):
                 raise e.ConnectionTimeout("TIMEOUT", address, exc, str(exc))
             raise e.TransportError("N/A", address, exc, str(exc))
 
-        self._transport.write_from_packet(raw_data, status_code, headers)
-
         if status_code >= 400:
             self._raise_error(status_code, raw_data)
 
-    def shutdown(self) -> None:
-        self._loop.create_task(self.connection.close())
+        self._write_packet(packet, raw_data,
+                           headers, status_code)
+        return packet
+
+    def _write_packet(self, packet, raw_data, headers, status_code):
+        packet.Data.receive(raw_data)
+        packet.Headers.receive(headers)
+        packet.Status.receive(status_code)
+        packet.EOF.receive(c.EOF)
+        self._transport.write_packet(packet)
+
+    async def shutdown(self) -> None:
+        await self.connection.close()
+
 
 class SSHProtocol(_Protocol):
 
