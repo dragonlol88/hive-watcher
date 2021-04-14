@@ -1,4 +1,3 @@
-import os
 import asyncio
 import aiohttp
 import urllib3
@@ -6,8 +5,6 @@ import typing as t
 
 from . import common as c
 from . import exceptions as e
-from . import watchbee
-from .wrapper.stream import stream
 
 from aiohttp.client_exceptions import ClientConnectionError
 

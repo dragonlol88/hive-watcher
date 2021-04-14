@@ -100,10 +100,9 @@ class Sentinel:
         for path in deleted_files:
             proj = self.files[path][0]
             self.events.add((proj, path, FILE_DELETED))
-            self.files.pop(path)
 
         # Files updated with new content
-        self.files.update(new_files)
+        self.files = new_files
 
     def read_event(self):
         self.run_buffer_once()

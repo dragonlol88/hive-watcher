@@ -1,10 +1,7 @@
 import time
 import asyncio
-import contextvars
-import queue
-import threading
 import os
-import typing as t
+import queue
 
 from . import common as c
 from . import exceptions as e
@@ -26,6 +23,7 @@ class WatchPool(object):
                  watcher):
 
         self.watcher = watcher
+        self.watcher_state = watcher.state
         self.loop = config.loop
         self.event_queue = event_queue
 
@@ -33,11 +31,17 @@ class WatchPool(object):
         self.protocol_factory = config.protocol_factory
         self.protocol_type = config.protocol_type
         self._record_interval_minute = config.record_interval_minute
+        self._over_timeout_for_cancel = config.overtimeout_for_cancel
 
         self.watch_bee_class = watchbee.WatchBee
 
         self._waiter = []
-        self._transports = []
+        self._process_wrappers = []
+        self._processes = watcher.state.processes
+        self._time_from_reload = watcher.state.time_from_reload
+        self._total_event = watcher.state.total_event
+        self._should_reload_watcher = watcher.state.should_reload_watcher
+
         self.watch_bees = {}
         self.event_count = 0
         self.qtimeout = 0
@@ -68,12 +72,12 @@ class WatchPool(object):
 
     def _finish_transport_event(self, loop, protocol, event,
                                 watchbee, config, waiter=None):
-        return _TransportH11EventProcess(loop, self, event, watchbee,
-                                         protocol, config, waiter)
+        return _TransportH11EventProcess(loop, self, event, watch_bee=watchbee,
+                                         protocol=protocol, config=config, waiter=waiter)
 
     def _finish_callback_event(self, loop, event,
                                watchbee, config=None, waiter=None):
-        return _CallbackEventProcess(loop, self, event, watchbee=watchbee,
+        return _CallbackEventProcess(loop, self, event, watch_bee=watchbee,
                                      config=config, waiter=waiter)
 
     def _finish_event(self, event, event_fut):
@@ -104,9 +108,10 @@ class WatchPool(object):
             ## exception 부분 다시 짜
             except asyncio.CancelledError as exc:
                 processor.close()
-                raise
+                raise exc
             except Exception as exc:
                 processor.close()
+                raise exc
             finally:
                 pass
         except (SystemExit, KeyboardInterrupt) as exc:
@@ -164,29 +169,28 @@ class WatchPool(object):
         return event
 
     def _run_once(self):
-        waiters = self._waiter
-        new_waiters = []
-        new_transport = []
-        # while waiters:
-        #     waiter = waiters.pop()
-        #     print(waiter)
-        #     if waiter.done() or waiter.cancelled():
-        #         waiter.set_result(None)
-        #     else:
-        #         new_waiters.append(waiter)
-
-        # self._waiter = new_waiters
-        while self._transports:
-            transport = self._transports.pop()
-            if transport._state == c._FINISHED:
-                rv = transport.result()
-                # if rv.event_complete:
-                #     # rv = transport.result()
-                #     # print(rv)
-                pass
+        new_event_processes = []
+        for event_process in self._process_wrappers:
+            try:
+                process = event_process.result()
+            except asyncio.InvalidStateError:
+                new_event_processes.append(event_process)
+            except Exception as exc:
+                # print(exc)
+                continue
             else:
-                new_transport.append(transport)
-        self._transports = new_transport
+                self._processes.append(process)
+        self._process_wrappers = new_event_processes
+
+        cur_process_size = len(self._processes)
+        while cur_process_size > 0:
+            cur_process_size -= 1
+            process = self._processes.pop()
+            if process._state == c._PENDING:
+                if time.time() - process.start > self._over_timeout_for_cancel:
+                    process.cancel()
+                    continue
+                self._processes.append(process)
 
         event = self._read_event()
         if event is None:
@@ -194,8 +198,8 @@ class WatchPool(object):
         loop = self.loop
         if loop is None:
             raise RuntimeError("loop must be specified.")
-        transport = loop.create_task(self._process_event(event))
-        self._transports.append(transport)
+        process_wrapper = loop.create_task(self._process_event(event))
+        self._process_wrappers.append(process_wrapper)
 
     def _detach(self):
         pass
@@ -221,16 +225,24 @@ class WatchPool(object):
         pass
 
 
+def _cancel_task(task):
+    if task._state == c._CANCELLED:
+        return
+    task.cancel()
+
+
 class _EventProcess:
     def __init__(self, loop, pool, event, watch_bee, config=None, waiter=None):
         self._loop = loop
         self._pool = pool
         self._config = config
-        self._over_timeout_for_cancel = config._overtimeout_for_cancel
+        self._over_timeout_for_cancel = config.overtimeout_for_cancel
         self._watchbee = watch_bee
         self._state = c._PENDING
         self.process_handle = None
         self._overtime_handles = []
+        self._waiter = waiter
+        self.start = time.time()
 
         self.process_handle = self._loop.call_soon(self.process, event)
         if waiter is not None:
@@ -240,17 +252,40 @@ class _EventProcess:
         if fut.cancelled():
             return
         while True:
-            if self._state == c._FINISHED or \
-                    self._state == c._CANCELLED:
+            if self._state != c._PENDING:
                 fut.set_result(value)
                 break
             await asyncio.sleep(0)
 
+    def result(self):
+        pass
+
     def process(self, event):
         raise NotImplementedError
 
-    def result(self):
-        pass
+    def _cancel_transfer_tasks(self):
+        raise NotImplementedError
+
+    def _cancel_overtime_handles(self):
+        raise NotImplementedError
+
+    async def finalize_transport(self):
+        raise NotImplementedError
+
+    def _inspect_transfer_tasks(self):
+        raise NotImplementedError
+
+    def _mark_live_with_bee(self, channel):
+        self._watchbee.mark_live(channel)
+
+    def _mark_dead_with_bee(self, channel):
+        self._watchbee.mark_dead(channel)
+
+    def finished(self):
+        return self._state == c._FINISHED
+
+    def cancelled(self):
+        return self._state == c._CANCELLED
 
     def cancel(self):
         pass
@@ -268,27 +303,26 @@ class _CallbackEventProcess(_EventProcess):
 
     def process(self, event):
 
-        proj, typ, arg = event
-        EVENT_INDEX = self._watchbee.WATCH_INDEX
-        if typ not in EVENT_INDEX:
+        proj, tg, typ = event
+        callback = self._watchbee.WATCH_CALLBACK
+        if typ not in callback:
             raise KeyError("%s type must be in watch index" % typ)
 
-        cb_name = EVENT_INDEX[typ]
+        cb_name = callback[typ]
         try:
             _cb = getattr(self._watchbee, cb_name)
-            _cb(arg)
+            _cb(tg)
         except Exception as exc:
             raise exc
 
         self._state = c._FINISHED
 
-    def cancelled(self):
-        return self._state == c._CANCELLED
-
     def cancel(self):
-        if self.process_handle is not None:
-            if not self.process_handle._cancelled:
-                self.process_handle.cancel()
+        if not self._state == c._CANCELLED:
+            self._state = c._CANCELLED
+            if self.process_handle is not None:
+                if not self.process_handle._cancelled:
+                    self.process_handle.cancel()
 
 
 class _TransportH11EventProcess(_EventProcess):
@@ -303,7 +337,7 @@ class _TransportH11EventProcess(_EventProcess):
                          config, waiter)
         self._transfer_tasks = []
         self._packets = []
-        self._create_task_failures = []
+        self._task_creation_failures = []
 
     def set_protocol(self, protocol):
         self._protocol = protocol
@@ -359,59 +393,68 @@ class _TransportH11EventProcess(_EventProcess):
             for channel in watchbee.channels:
                 try:
                     task = self._protocol.receive_event(channel, typ, tg)
+                    task.add_done_callback(_cancel_task)
                     self._loop.call_soon(_cb, tg)
                     if self._over_timeout_for_cancel:
                         self._call_later_for_cancel(task)
                     self._transfer_tasks.append(task)
                 except TypeError:
-                    self._create_task_failures.append((channel, typ, tg))
+                    self._task_creation_failures.append((channel, typ, tg))
                     continue
         except (KeyboardInterrupt, SystemExit) as exc:
             self.__protocol_connected = False
         except Exception as exc:
             self.__protocol_connected = False
+
         finally:
             if self.__protocol_connected:
-                self._loop.create_task(self.finalize_transport(watchbee))
+                self._loop.create_task(self.finalize_transport())
             else:
                 self._protocol.shutdown()
             if exc:
-                # log 찍어야함
                 pass
 
     def _call_later_for_cancel(self, task):
         self._overtime_handles.append(
             self._loop.call_later(self._over_timeout_for_cancel,
-                                  self._cancel_overtime_task, task))
+                                  task.cancel))
 
-    def _cancel_overtime_task(self, task):
-        if task._state == c._CANCELLED:
-            return
-        task.cancel()
+    def _inspect_transfer_tasks(self):
 
-    async def finalize_transport(self, watchbee):
-        while not self._state == c._PENDING:
+        transfer_task = self._transfer_tasks.pop()
+        transfer_task_state = transfer_task._state
+        if transfer_task_state == c._CANCELLED:
+            raise RuntimeError('Cannot inspect task after cancelled')
+
+        if transfer_task_state == c._FINISHED:
+            exception = transfer_task.exception()
+            ch = transfer_task.get_name()
+            if exception:
+                self._mark_dead_with_bee(ch)
+            else:
+                self._mark_live_with_bee(ch)
+        elif transfer_task_state == c._PENDING:
+            self._transfer_tasks.append(transfer_task)
+
+    async def finalize_transport(self):
+        while self._state == c._PENDING:
             tasks_count = len(self._transfer_tasks)
             for _ in range(tasks_count):
-                transfer_task = self._transfer_tasks.pop()
-                transfer_task_state = transfer_task._state
-                if transfer_task_state == c._FINISHED:
-                    exception = transfer_task.exception()
-                    ch = transfer_task.get_name()
-                    if exception:
-                        watchbee.mark_dead(ch)
-                    else:
-                        ch = transfer_task.get_name()
-                        watchbee.mark_live(ch)
-                elif transfer_task_state == c._PENDING:
-                    self._transfer_tasks.append(transfer_task)
+                try:
+                    self._inspect_transfer_tasks()
+                except RuntimeError:
+                    continue
             if tasks_count == 0:
                 break
             await asyncio.sleep(0)
-        self._cancel_overtime_handles()
         await self._protocol.shutdown()
+        try:
+            self._cancel_overtime_handles()
+        except RuntimeError:
+            self._overtime_handles = []
         self.__protocol_connected = False
-        self._state = c._FINISHED
+        if not self.cancelled():
+            self._state = c._FINISHED
 
     def _cancel_transfer_tasks(self):
         for task in self._transfer_tasks:
@@ -420,16 +463,14 @@ class _TransportH11EventProcess(_EventProcess):
         self._transfer_tasks = []
 
     def _cancel_overtime_handles(self):
+        if not self._overtime_handles:
+            raise RuntimeError(f'set up overtime using loop.call_back_later '
+                        f'before call {self._cancel_overtime_handles.__name__}')
+
         for handle in self._overtime_handles:
             if not handle._cancelled:
                 handle.cancel()
         self._overtime_handles = []
-
-    def finished(self):
-        return self._state == c._FINISHED
-
-    def cancelled(self):
-        return self._state == c._CANCELLED
 
     def cancel(self):
         if not self._state == c._CANCELLED:
@@ -437,6 +478,10 @@ class _TransportH11EventProcess(_EventProcess):
             if self.process_handle is not None:
                 if not self.process_handle._cancelled:
                     self.process_handle.cancel()
+
             self._cancel_transfer_tasks()
-            self._cancel_overtime_handles()
+            try:
+                self._cancel_overtime_handles()
+            except RuntimeError as exc:
+                self._overtime_handles = []
         self.__protocol_connected = False

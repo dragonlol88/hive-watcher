@@ -19,7 +19,7 @@ class Config:
                  mode,  # watcher or agent
                  lookup_dir: str,
                  *,
-                 ignore_pattern: str = '.*swp|4913|.*~|.*swx:',
+                 ignore_pattern: str = '.*swp|4913|.*~|.*swx|\..*',
                  log_config=loggy.LOGGING_CONFIG,
                  protocol_type: str = 'h11',
                  noti_host: str = '127.0.0.1',
@@ -28,6 +28,7 @@ class Config:
                  project_depth: int = 1,
                  connection_timeout: float = 300,
                  keep_alive_timeout: float = 5.0,
+                 overtimeout_for_cancel: float=0,
                  queue_timeout: float = 0,
                  record_interval_minute: int = 5,
                  reload_delay: int = 2,
@@ -85,7 +86,7 @@ class Config:
         self.retry_on_timeout = retry_on_timeout
         self.retry_status_code = retry_on_status_code
         self.transporter = None
-
+        self.overtimeout_for_cancel = overtimeout_for_cancel
         self.configure_logging()
 
     def create_pool(self, watcher, event_queue):

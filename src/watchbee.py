@@ -1,7 +1,6 @@
 import asyncio
 
 from . import common as c
-
 from collections import defaultdict
 
 
@@ -146,7 +145,6 @@ class Headers(_H11PacketItem):
             self.send_packet[self.__key__] = data
 
     def receive(self, data):
-        print(data)
         self.receive_packet[self.__key__] = data
 
 

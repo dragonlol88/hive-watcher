@@ -54,7 +54,7 @@ async def execute_event(task, event):
 
 
 class WatcherState:
-    tasks = set()
+    processes = []
     time_from_reload = time.time()
     total_event = 0
     should_reload_watcher = multiprocessing.Event()
@@ -68,6 +68,7 @@ class HiveWatcher:
 
         self._lock = threading.Lock()
         self._event_queue = EventQueue()
+        self.state = WatcherState()
         self.should_exit = False
         self.config = config
 
