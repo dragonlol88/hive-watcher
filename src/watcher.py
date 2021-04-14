@@ -8,11 +8,11 @@ import typing as t
 import logging
 import multiprocessing
 
-from .common import EventQueue
-from .watch_pool import WatchPool
+from . import common as c
+
 from .loops.asyncio_loop import asyncio_setup
 from .buffer import EventNotify
-from .common import Loop
+
 
 if t.TYPE_CHECKING:
     from .common import Task, Loop
@@ -57,8 +57,7 @@ class WatcherState:
     processes = []
     time_from_reload = time.time()
     total_event = 0
-    should_reload_watcher = multiprocessing.Event()
-
+    reload_watcher = multiprocessing.Event()
 
 class HiveWatcher:
 
@@ -67,11 +66,22 @@ class HiveWatcher:
                  ):
 
         self._lock = threading.Lock()
-        self._event_queue = EventQueue()
+        self._event_queue = c.EventQueue()
         self.state = WatcherState()
         self.should_exit = False
         self.config = config
+        self.max_event = config.max_event
+        self.reload_watcher = self.state.reload_watcher
+        self.processes = self.state.processes
+        self.reload_interval = self.config.reload_interval
+        self.shutdown_timeout = config.shutdown_timeout
+        self.start = None
 
+        # self._processes = self.state.processes
+        # self._time_from_reload = watcher.state.time_from_reload
+        # self._total_event = watcher.state.total_event
+        # self._should_reload_watcher = watcher.state.should_reload_watcher
+        #
     def watch(self):
         loop = asyncio.get_event_loop()
         loop.run_until_complete(self.run())
@@ -89,7 +99,6 @@ class HiveWatcher:
         message = 'Started awatcher process [%d]'
         logger.info(message,
                     process_id)
-
         await self.startup()
 
         if self.should_exit:
@@ -104,33 +113,31 @@ class HiveWatcher:
         )
 
     async def startup(self):
-
+        self.start = time.time()
         loop = asyncio.get_event_loop()
         event_queue = self._event_queue
         config = self.config
         host = config.noti_host
         port = config.noti_port
 
-        # 다시.................................
+        await self.read_file()
         self.notify = EventNotify(config, event_queue)
-
-        # try:
-        self.pool = config.create_pool(self, event_queue)
-        await self.pool.start()
-        # except Exception as e:
-        #     message = "Fail initialize Hive Watcher Emitter [%s]"
-        #     logger.error(
-        #         message,
-        #         str(e)
-        #     )
-        #     self.should_exit = True
+        try:
+            self.pool = config.create_pool(self, event_queue)
+            await self.pool.start()
+        except Exception as e:
+            message = "Fail initialize Hive Watcher Pool [%s]"
+            logger.error(
+                message,
+                str(e)
+            )
+            self.should_exit = True
 
         self._log_started_message()
 
     def _log_started_message(self):
         if not hasattr(self, 'scheme'):
             self.scheme = 'http'
-
         port = self.config.noti_port
         host = self.config.noti_host
         root_dir = self.config.lookup_dir
@@ -139,88 +146,79 @@ class HiveWatcher:
                     self.scheme,
                     host,
                     port)
-
         local_notify_fmt = "Local Notifier is watching at %s (Press Ctrl + C to quit)"
         logger.info(local_notify_fmt, root_dir)
 
     async def main_loop(self):
         should_exit = await self.buzz()
         while not should_exit:
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(2)
             should_exit = await self.buzz()
 
     async def buzz(self):
 
-        # pop task
-        # If task is done, delete task
-        # # If task is not complicated, put task in task set
-        # while self.tasks:
-        #     task, event = self.tasks.pop()
-        #     if task.done():
-        #         # task terminate
-        #         del task
-        #     else:
-        #         self.tasks.add((task, event))
-        #
-        # # Write watch information in files
-        # if now - self.start_time >= self.record_interval_minute * 60:
-        #     # await self.manager_pool.write()
-        #     # await self.file_io.write()
-        #     self.start_time = now
+        if self.max_event:
+            if self.state.total_event > self.max_event:
+                self.reload_commands()
+
+        if self.reload_interval*3600 > time.time() - self.start:
+            self.reload_commands()
+
+        # 나중에 callback notify 추가 하기
 
         if self.should_exit:
             return True
         return False
 
+    def reload_commands(self):
+        self.notify_reload_signal()
+        self.state.total_event = 0
+        self.start = time.time()
+
     async def shutdown(self):
         """
         Shutting down awatcher.
         """
+        start = time.time()
         # Todo 로그찍기
-        # First, stop the emitter processing.
-        self.pool.stop()
-        #
-        # # Gather events from event_queue and put event in tasks set.
-        # while True:
-        #     try:
-        #         task, event = self.get_event_queue()
-        #     except queue.Empty:
-        #         break
-        #     self.tasks.add((task, event))
-        #
-        # # Complete additional events.
-        # while self.tasks:
-        #     task, event = self.tasks.pop()
-        #     await execute_event(task, event)
+        # First, stop the watcher pool processing.
+        await self.pool.stop()
 
-        # Record watches and file information.
-        # await self.manager_pool.write()
-        # await self.file_io.write()
+        # Gather events from event_queue and put event in tasks set.
+        while self.processes:
+            if self.shutdown_timeout > time.time() - start:
+                break
+            process = self.processes.pop()
+            if process._state == c._PENDING:
+                self.processes.append(process)
+
+        await self.write_file()
+
+    async def read_file(self):
+        pass
+
+    async def write_file(self):
+        pass
+
+    @property
+    def should_reload_watcher(self):
+        return self.reload_watcher.is_set()
+
+    def notify_reload_signal(self):
+        self.reload_watcher.set()
+
+    def initialize_reload_watcher(self):
+        self.reload_watcher.clear()
 
     def get_event_queue(self):
         return self._event_queue.get(timeout=0)
 
     @property
     def event_queue(self):
-        """
-        Event queue
-        """
         return self._event_queue
 
-    @property
-    def timeout(self):
-        """
-        Dequeue timeout
-        :return:
-        """
-        return self._timeout
+    def install_signal_handlers(self, loop: t.Optional[c.Loop] = None) -> None:
 
-    def install_signal_handlers(self, loop: t.Optional[Loop] = None) -> None:
-        """
-
-        :param loop:
-        :return:
-        """
         if threading.current_thread() is not threading.main_thread():
             # Signals can only be listened to from the main thread.
             return
@@ -237,10 +235,4 @@ class HiveWatcher:
                 signal.signal(sig, self.handle_exit)
 
     def handle_exit(self, sig, frame):
-        """
-
-        :param sig:
-        :param frame:
-        :return:
-        """
         self.should_exit = True
