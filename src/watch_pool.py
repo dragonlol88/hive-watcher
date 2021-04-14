@@ -40,7 +40,6 @@ class WatchPool(object):
         self._processes = watcher.state.processes
         self._time_from_reload = watcher.state.time_from_reload
         self._total_event = watcher.state.total_event
-        self._should_reload_watcher = watcher.state.should_reload_watcher
 
         self.watch_bees = {}
         self.event_count = 0
@@ -176,7 +175,6 @@ class WatchPool(object):
             except asyncio.InvalidStateError:
                 new_event_processes.append(event_process)
             except Exception as exc:
-                # print(exc)
                 continue
             else:
                 self._processes.append(process)
@@ -195,11 +193,13 @@ class WatchPool(object):
         event = self._read_event()
         if event is None:
             return
+
         loop = self.loop
         if loop is None:
             raise RuntimeError("loop must be specified.")
         process_wrapper = loop.create_task(self._process_event(event))
         self._process_wrappers.append(process_wrapper)
+        self._total_event += 1
 
     def _detach(self):
         pass
@@ -207,9 +207,15 @@ class WatchPool(object):
     def _attach(self):
         pass
 
-    def stop(self):
+    async def stop(self):
+        # consuming event
+        event = self._read_event()
+        while event:
+            await self._process_event(event)
+            event = self._read_event()
+
         self.__stop_running = True
-        self._write_bee()
+        await self._write_bee()
 
         if (self._should_serving_fut is not None and \
                 not self._should_serving_fut.done()):
@@ -260,6 +266,18 @@ class _EventProcess:
     def result(self):
         pass
 
+    def _mark_live_with_bee(self, channel):
+        self._watchbee.mark_live(channel)
+
+    def _mark_dead_with_bee(self, channel):
+        self._watchbee.mark_dead(channel)
+
+    def finished(self):
+        return self._state == c._FINISHED
+
+    def cancelled(self):
+        return self._state == c._CANCELLED
+
     def process(self, event):
         raise NotImplementedError
 
@@ -275,20 +293,8 @@ class _EventProcess:
     def _inspect_transfer_tasks(self):
         raise NotImplementedError
 
-    def _mark_live_with_bee(self, channel):
-        self._watchbee.mark_live(channel)
-
-    def _mark_dead_with_bee(self, channel):
-        self._watchbee.mark_dead(channel)
-
-    def finished(self):
-        return self._state == c._FINISHED
-
-    def cancelled(self):
-        return self._state == c._CANCELLED
-
     def cancel(self):
-        pass
+        raise NotImplementedError
 
 
 class _CallbackEventProcess(_EventProcess):
