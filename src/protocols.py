@@ -54,13 +54,12 @@ class H11Protocol(_Protocol):
         if not headers:
             headers = {}
         self._loop = loop
-        self.timeout = timeout or 300
         self.read_timeout = read_timeout or 300
+        self._timeout = timeout or 300
         self.keepalive_timeout = keepalive_timeout
-        self.total_connections = total_connections
         self.params = kwargs
+        self.total_connections = total_connections
         self.use_dns_cache = self.params.get("use_dns_cache", True)
-        self.auto_decompress = self.params.get('auto_decompress', True)
 
         if http_auth is not None:
             if isinstance(http_auth, (tuple, list)):
@@ -72,19 +71,24 @@ class H11Protocol(_Protocol):
             headers.update({'keep-alive': keep_alive})
         self.headers = headers
 
-        self.connection = self._create_connection()
+        self.auto_decompress = self.params.get('auto_decompress', True)
+        self.connection = self._create_connection(self.timeout)
 
-    def _create_connection(self):
+    def _create_connection(self, timeout=None):
         if not self._loop:
             self._loop = c.get_running_loop()
-
         connection = self.connection_class(
                                         loop=self.loop,
                                         auto_decompress=self.auto_decompress,
-                                        headers=self.headers
-                                    )
+                                        headers=self.headers,
+                                        timeout=self.timeout)
 
         return connection
+
+    @property
+    def timeout(self):
+        timeout = self._timeout or 60*5
+        return aiohttp.ClientTimeout(total=timeout)
 
     def receive_event(self, channel, typ, path):
         loop = self._loop
@@ -104,12 +108,12 @@ class H11Protocol(_Protocol):
                 status_code = resp.status
                 headers = resp.headers
         except Exception as exc:
+            print(exc)
             if isinstance(exc, ClientConnectionError):
                 raise ConnectionError("N/A", address, exc, str(exc))
             elif isinstance(e, asyncio.exceptions.TimeoutError):
                 raise e.ConnectionTimeout("TIMEOUT", address, exc, str(exc))
             raise e.TransportError("N/A", address, exc, str(exc))
-
         if status_code >= 400:
             self._raise_error(status_code, raw_data)
 
