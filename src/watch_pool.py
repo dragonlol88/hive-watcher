@@ -2,6 +2,7 @@ import time
 import asyncio
 import os
 import queue
+from abc import ABC
 
 from . import common as c
 from . import exceptions as e
@@ -10,9 +11,11 @@ from . import protocols
 
 from .wrapper.stream import stream
 
-DELETE_CHANNEL = c.EventSentinel.DELETE_CHANNEL
-CREATE_CHANNEL = c.EventSentinel.CREATE_CHANNEL
+CHANNEL_DELETED = c.EventSentinel.DELETE_CHANNEL
+CHANNEL_CREATED = c.EventSentinel.CREATE_CHANNEL
 FILE_DELETED = c.EventSentinel.FILE_DELETED
+FILE_CREATED = c.EventSentinel.FILE_CREATED
+FILE_MODIFIED = c.EventSentinel.FILE_MODIFIED
 
 
 class WatchPool(object):
@@ -84,8 +87,7 @@ class WatchPool(object):
         watchbee = self._get_watch_bee(pj, tp)
         loop = self.loop
         config = self.config
-        if tp in (DELETE_CHANNEL, CREATE_CHANNEL,
-                  FILE_DELETED):
+        if tp in (CHANNEL_DELETED, FILE_DELETED):
             processor = self._finish_callback_event(
                 loop, event, watchbee, config, event_fut)
         else:
@@ -120,7 +122,7 @@ class WatchPool(object):
 
     def _get_watch_bee(self, pj, tp):
         loop = asyncio.get_event_loop()
-        if tp in (DELETE_CHANNEL, CREATE_CHANNEL) and \
+        if tp in (CHANNEL_DELETED, CHANNEL_CREATED) and \
                 pj not in self.watch_bees:
             raise RuntimeError("%s is not created. Add the project first")
         elif pj not in self.watch_bees:
@@ -170,6 +172,7 @@ class WatchPool(object):
     def _run_once(self):
         new_event_processes = []
         for event_process in self._process_wrappers:
+            # _proces_event 에러 처리 다시 생각하기
             try:
                 process = event_process.result()
             except asyncio.InvalidStateError:
@@ -217,8 +220,7 @@ class WatchPool(object):
         self.__stop_running = True
         await self._write_bee()
 
-        if (self._should_serving_fut is not None and \
-                not self._should_serving_fut.done()):
+        if not self._should_serving_fut and not self._should_serving_fut.done():
             self._should_serving_fut.cancel()
 
         self._start_serving_fut.cancel()
@@ -246,21 +248,23 @@ class _EventProcess:
         self._watchbee = watch_bee
         self._state = c._PENDING
         self.process_handle = None
-        self._overtime_handles = []
         self._waiter = waiter
         self.start = time.time()
-
+        self._message = None
         self.process_handle = self._loop.call_soon(self.process, event)
         if waiter is not None:
-            loop.create_task(self._set_result_when_complete(waiter, None))
+            loop.create_task(
+                self._set_result_when_complete(waiter, self._message))
 
-    async def _set_result_when_complete(self, fut, value):
+    async def _set_result_when_complete(self, fut, msg, value=None):
         if fut.cancelled():
             return
         while True:
-            if self._state != c._PENDING:
+            if self._state == c._FINISHED:
                 fut.set_result(value)
                 break
+            elif msg:
+                fut.cancel(msg)
             await asyncio.sleep(0)
 
     def result(self):
@@ -333,14 +337,12 @@ class _CallbackEventProcess(_EventProcess):
 
 class _TransportH11EventProcess(_EventProcess):
 
-    def __init__(self, loop, pool, event, watch_bee,
-                 protocol, config=None, waiter=None):
+    def __init__(self, loop, pool, event, watch_bee, protocol, config=None, waiter=None):
         self.set_protocol(protocol)
         if loop is None:
             loop = asyncio.get_event_loop()
         loop.call_soon(self._protocol.connection_made, self)
-        super().__init__(loop, pool, event, watch_bee,
-                         config, waiter)
+        super().__init__(loop, pool, event, watch_bee, config, waiter)
         self._transfer_tasks = []
         self._packets = []
         self._task_creation_failures = []
@@ -363,17 +365,15 @@ class _TransportH11EventProcess(_EventProcess):
 
         if not isinstance(event_type_num, str):
             event_type_num = str(event_type_num)
-        if typ in (c.EventSentinel.FILE_CREATED,
-                   c.EventSentinel.FILE_MODIFIED,
-                   c.EventSentinel.FILE_DELETED):
+        if typ in (FILE_CREATED, FILE_MODIFIED, FILE_DELETED):
             content_type = 'application/octet-stream'
         else:
             raise ValueError("%s not supported event" % (repr(typ)))
 
         h11packet.Headers.send({
-            "File-Name": file_name,
-            "Event-Type": event_type_num,
-            "Content-Type": content_type
+                "File-Name": file_name,
+                "Event-Type": event_type_num,
+                "Content-Type": content_type
         })
         h11packet.Data.send(stream(path))
         h11packet.Method.send(method)
@@ -383,35 +383,58 @@ class _TransportH11EventProcess(_EventProcess):
 
     def process(self, event):
 
-        watchbee = self._watchbee
-        callbacks = watchbee.WATCH_CALLBACK
+        watch_bee = self._watchbee
+
+        # tg is channel or path. typ
+        # typ is event type
         proj, tg, typ = event
+        callbacks = watch_bee.BEE_ACTIONS
+        channels, paths = [], []
         exc = None
+        ov_handle = None
+
+        if isinstance(tg, c.Path):
+            channels = watch_bee.channels
+            paths = [tg.path]*len(channels)
+
+        elif isinstance(tg, c.Channel) and typ == CHANNEL_CREATED:
+            paths = watch_bee.paths
+            channels = [tg.channel]*len(paths)
+
         if self._state == c._FINISHED:
             raise RuntimeError("process is already complete.")
         if not self.__protocol_connected:
             raise RuntimeError("protocol does not connected.")
         try:
-            _cb = getattr(watchbee, callbacks[typ])
+            _bee_action = getattr(watch_bee, callbacks[typ])
         except KeyError:
-            _cb = lambda *x: None
+            _bee_action = lambda *x: None
         try:
-            for channel in watchbee.channels:
+            for channel, path in zip(channels, paths):
                 try:
-                    task = self._protocol.receive_event(channel, typ, tg)
-                    task.add_done_callback(_cancel_task)
-                    self._loop.call_soon(_cb, tg)
+                    task = self._protocol.receive_event(channel, typ, path)
+
+                    # task.add_done_callback(_cancel_task)
+                    if typ == FILE_CREATED:
+                        self._loop.call_soon(_bee_action, path)
+                    if typ == CHANNEL_CREATED:
+                        self._loop.call_soon(_bee_action, path)
                     if self._over_timeout_for_cancel:
-                        self._call_later_for_cancel(task)
-                    self._transfer_tasks.append(task)
+                        ov_handle = self._call_later_for_cancel(task)
+                    self._transfer_tasks.append((task, ov_handle))
                 except TypeError:
-                    self._task_creation_failures.append((channel, typ, tg))
-                    continue
+                    self._task_creation_failures.append((channel, typ, path))
+
+            # if all of operations are failed to make the tasks
+            # raise cancelled error in self._set_result_when_complete
+            if not self._transfer_tasks and channels:
+                message = f'All task creations are failed'
+                self._raise_cancel_error_in_waiter(message)
+
         except (KeyboardInterrupt, SystemExit) as exc:
             self.__protocol_connected = False
         except Exception as exc:
             self.__protocol_connected = False
-
         finally:
             if self.__protocol_connected:
                 self._loop.create_task(self.finalize_transport())
@@ -421,73 +444,89 @@ class _TransportH11EventProcess(_EventProcess):
                 pass
 
     def _call_later_for_cancel(self, task):
-        self._overtime_handles.append(
-            self._loop.call_later(self._over_timeout_for_cancel,
-                                  task.cancel))
+        return self._loop.call_later(
+                            self._over_timeout_for_cancel, task.cancel)
 
     def _inspect_transfer_tasks(self):
+        # 다시 짜야됨
 
-        transfer_task = self._transfer_tasks.pop()
+        transfer_task, ov_handle = self._transfer_tasks.pop()
         transfer_task_state = transfer_task._state
+        ch = transfer_task.get_name()
+
         if transfer_task_state == c._CANCELLED:
-            raise RuntimeError('Cannot inspect task after cancelled')
+            # In case of overtime task complete,
+            # (that is, transfer task cannot complete in over timeout)
+            # raise Runtime error
+            self._mark_dead_with_bee(ch)
+            raise RuntimeError(f'{transfer_task} was cancelled because of over timeout')
 
         if transfer_task_state == c._FINISHED:
+            # exception 처리 어떻게 하지????
             exception = transfer_task.exception()
-            ch = transfer_task.get_name()
             if exception:
                 self._mark_dead_with_bee(ch)
+                # If transfer task has an error
+                # all of related task will be cancelled.
+                if ov_handle and self._over_timeout_for_cancel:
+                    ov_handle.cancle()
+                transfer_task.cancel()
+                raise exception
+
             else:
                 self._mark_live_with_bee(ch)
+            # cancel overtime handle when transfer task complete.
+            ov_handle.cancle()
+
         elif transfer_task_state == c._PENDING:
-            self._transfer_tasks.append(transfer_task)
+            self._transfer_tasks.append((transfer_task, ov_handle))
+
+    def _raise_cancel_error_in_waiter(self, msg=None):
+        pass
 
     async def finalize_transport(self):
+        init_task_count = len(self._transfer_tasks)
         while self._state == c._PENDING:
             tasks_count = len(self._transfer_tasks)
             for _ in range(tasks_count):
                 try:
                     self._inspect_transfer_tasks()
-                except RuntimeError:
-                    continue
-            if tasks_count == 0:
+                except RuntimeError as exc:
+                    # log message
+                    # because of over timeout
+                    print(exc)
+                    init_task_count -= 1
+                except e.TransportError as exc:
+                    # log message
+                    # because of transport error
+                    init_task_count -= 1
+                    print(exc)
+            #if all of tasks are cancelled
+            if init_task_count == 0:
+                self._raise_cancel_error_in_waiter()
+            if init_task_count and tasks_count == 0:
                 break
             await asyncio.sleep(0)
         await self._protocol.shutdown()
-        try:
-            self._cancel_overtime_handles()
-        except RuntimeError:
-            self._overtime_handles = []
         self.__protocol_connected = False
         if not self.cancelled():
             self._state = c._FINISHED
 
     def _cancel_transfer_tasks(self):
-        for task in self._transfer_tasks:
+        for task, ov_handle in self._transfer_tasks:
             if not task._cancelled:
                 task.cancel()
+            if self._over_timeout_for_cancel and not ov_handle._cancelled:
+                ov_handle.cancle()
         self._transfer_tasks = []
 
-    def _cancel_overtime_handles(self):
-        if not self._overtime_handles:
-            raise RuntimeError(f'set up overtime using loop.call_back_later '
-                        f'before call {self._cancel_overtime_handles.__name__}')
-
-        for handle in self._overtime_handles:
-            if not handle._cancelled:
-                handle.cancel()
-        self._overtime_handles = []
-
     def cancel(self):
-        if not self._state == c._CANCELLED:
-            self._state = c._CANCELLED
-            if self.process_handle is not None:
-                if not self.process_handle._cancelled:
-                    self.process_handle.cancel()
+        if self._state == c._CANCELLED:
+            raise asyncio.InvalidStateError("already cancelled")
 
-            self._cancel_transfer_tasks()
-            try:
-                self._cancel_overtime_handles()
-            except RuntimeError as exc:
-                self._overtime_handles = []
+        self._state = c._CANCELLED
+        if self.process_handle is not None:
+            if not self.process_handle._cancelled:
+                self.process_handle.cancel()
+        self._cancel_transfer_tasks()
         self.__protocol_connected = False
