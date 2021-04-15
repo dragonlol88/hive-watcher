@@ -2,7 +2,6 @@ import time
 import asyncio
 import os
 import queue
-from abc import ABC
 
 from . import common as c
 from . import exceptions as e
@@ -388,7 +387,7 @@ class _TransportH11EventProcess(_EventProcess):
         # tg is channel or path. typ
         # typ is event type
         proj, tg, typ = event
-        callbacks = watch_bee.BEE_ACTIONS
+        _bee_actions = watch_bee.BEE_ACTIONS
         channels, paths = [], []
         exc = None
         ov_handle = None
@@ -406,19 +405,14 @@ class _TransportH11EventProcess(_EventProcess):
         if not self.__protocol_connected:
             raise RuntimeError("protocol does not connected.")
         try:
-            _bee_action = getattr(watch_bee, callbacks[typ])
+            _bee_action = getattr(watch_bee, _bee_actions[typ])
         except KeyError:
             _bee_action = lambda *x: None
         try:
             for channel, path in zip(channels, paths):
                 try:
                     task = self._protocol.receive_event(channel, typ, path)
-
-                    # task.add_done_callback(_cancel_task)
-                    if typ == FILE_CREATED:
-                        self._loop.call_soon(_bee_action, path)
-                    if typ == CHANNEL_CREATED:
-                        self._loop.call_soon(_bee_action, path)
+                    self._loop.call_soon(_bee_action, path)
                     if self._over_timeout_for_cancel:
                         ov_handle = self._call_later_for_cancel(task)
                     self._transfer_tasks.append((task, ov_handle))
