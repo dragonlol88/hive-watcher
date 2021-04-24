@@ -1,27 +1,135 @@
 import asyncio
 
 from . import common as c
+from .wrapper.stream import AsyncJson
 from collections import defaultdict
+
+
+class ActionBase:
+
+    # prt : prototype
+
+    def __init__(self, **prt):
+
+        self.prt = prt
+        self.ssh_exe = None
+        for k, v in self.prt.items():
+            setattr(self, k, v)
+
+        """
+            {
+                'method': '',
+                'kwargs': {},
+            }
+        """
+    def connect_ssh_exe(self, ssh_exe):
+        self.ssh_exe = ssh_exe
+
+    def action(self):
+        if not hasattr(self, "methods"):
+            raise AttributeError("methods attribute must be specified.")
+        resp = []
+        for method in self.methods:
+            action = getattr(self, method.strip("_"))
+            resp.append(action())
+
+        return resp
+
+
+class ElasticsearchAction(ActionBase):
+
+    open_ = f"curl -POST 'localhost:%(port)s/%(index)s/_open'"
+    close_ = f"curl -POST 'localhost:%(port)s/%(index)s/_close'"
+
+    def __init__(self, ssh_exe, prt):
+        super().__init__(ssh_exe, prt)
+
+    def open(self):
+        command = self.open_ % self.__dict__
+        return self.ssh_exe(command)
+
+    def close(self):
+        command = self.close_ % self.__dict__
+        return self.ssh_exe(command)
+
+
+class DockerAction(ActionBase):
+    restart_ = 'docker restart %(container)s'
+
+    def __init__(self, ssh_exe, prt):
+        super().__init__(ssh_exe, prt)
+
+    def restart(self):
+        command = self.restart_ % self.__dict__
+        return self.ssh_exe(command)
+
+
+class Job:
+    __slots__ = ('source', 'target', "channel", "actions", "user")
+
+    def __init__(self, source, channel, actions=None, user=None, target=None):
+        self.source = source
+        self.target = target
+        self.channel = channel
+        self.actions = actions
+        self.user = user
+
+    @property
+    def key(self):
+        """
+        Key property to use the identify watch.
+        """
+        return self.source, self.channel
+
+    def __contains__(self, item):
+        return item in self.key
+
+    def __eq__(self, job) -> bool:  # type: ignore
+        return self.key==job.key
+
+    def __ne__(self, job) -> bool:  # type: ignore
+        return self.key!=job.key
+
+    def __hash__(self) -> int:
+        return hash(self.key)
+
+    def __repr__(self) -> str:
+        return "<%s: Job=%s>" % (
+            type(self).__name__, self.key)
+
+
+class JobFactory:
+    job = Job
+
+    @classmethod
+    def create_job(cls, job):
+        pass
+
 
 
 class WatchBee(object):
 
     max_fail_num = 3
-    WATCH_CALLBACK = {
-        c.EventSentinel.DELETE_CHANNEL: c.DISCARD_CHANNEL,
-        c.EventSentinel.CREATE_CHANNEL: c.ADD_CHANNEL,
-        c.EventSentinel.FILE_DELETED: c.DISCARD_PATH,
+    BEE_ACTIONS = {
+        'elasticsearch': ElasticsearchAction,
+        'docker': DockerAction
+    }
+
+    BEE_CALLBACKS = {
+        c.EventSentinel.CHANNEL_DELETED: c.DELETE_JOBS,
+        c.EventSentinel.CHANNEL_CREATED: c.ADD_CHANNEL,
+        c.EventSentinel.FILE_DELETED: c.DELETE_JOBS,
         c.EventSentinel.FILE_CREATED: c.ADD_PATH
     }
+    # target directory도 지정...
 
     def __init__(self, project, loop):
 
         self.project = project
-        self.paths = c.UniqueList()
-        self.channels = c.UniqueList()  # {"http://127.0.0.1:6666/", "http://192.168.0.230:5112/
-        self.channels.append("http://127.0.0.1:6666/")
         self.dead_count = defaultdict(int)
-        self.connections = []
+        self.jobs = defaultdict(dict)
+        self.wait_sources = set()
+        self.wait_channels = set()
 
         self._loop = loop
         self._lock = asyncio.Lock(loop=self._loop)
@@ -48,21 +156,33 @@ class WatchBee(object):
             self.discard_channel(channel)
             #log찍
         self.dead_count[channel] = dead_count + 1
-    def clear_connection(self):
-        while self.connections:
-            self.connections.pop()
 
-    def add_path(self, path: str) -> None:
-        self.paths.append(path)
+    @property
+    def sources(self):
+        return [src for (src, chan), _ in self.jobs.key()]
 
-    def discard_path(self, path: str) -> None:
-        self.paths.pop(path)
+    @property
+    def channels(self):
+        return [chan for (src, chan), _ in self.jobs.key()]
 
-    def add_channel(self, channel: str) -> None:
-        self.channels.append(channel)
+    def modify_job(self):
+        pass
 
-    def discard_channel(self, channel: str) -> None:
-        self.channels.pop(channel)
+    def delete_job(self, sign):
+
+        for key, job in self.jobs:
+            if sign in job:
+                del self.jobs[key]
+
+    def create_job(self, resume) -> None:
+        a = {
+            "type": "ssh",
+            "user": "",
+            "target": "",
+            "source": "",
+            "channel": "",
+            "actions": ""
+        }
 
     @property
     def shape(self):
@@ -95,6 +215,53 @@ class WatchBee(object):
             type(self).__name__, self.key)
 
 
+class BeeManager:
+    bee_class = WatchBee
+
+    def __init__(self, config):
+        self.async_json = AsyncJson(config.bee_init_path)
+        self.watch_pool = None
+        self.raw_json = {}
+
+    @property
+    def watch_bees(self):
+        return self.watch_pool.watch_bees
+
+    async def create_bee_from_config(self):
+
+        raw_json = await self.read()
+
+        projects = raw_json["projects"]
+        actions = raw_json["actions"]
+
+
+    def set_watch_pool(self, watch_pool):
+        self.watch_pool = watch_pool
+
+    def register_bee(self, project):
+
+        loop = asyncio.get_event_loop()
+        self.watch_bees[project] = WatchBee(project, loop)
+        return self.watch_bees[project]
+
+    def find_bee(self, project):
+        # 이전에 등록을 해줘야 함
+        # create file, modified files (project source)
+        # create channel , delete channel
+
+        try:
+            bee = self.watch_bees[project]
+        except KeyError:
+            bee = None
+        return bee
+
+    async def read(self):
+        return await self.async_json.load()
+
+    async def write(self):
+        pass
+
+
 class H11Packet:
 
     def __init__(self):
@@ -107,7 +274,6 @@ class H11Packet:
         self.Method = Method(self)
         self.URL = URL(self)
         self.EOF = EOF(self)
-
 
 
 class _H11PacketItem:
@@ -135,19 +301,6 @@ class _H11PacketItem:
         raise NotImplementedError
 
 
-class Headers(_H11PacketItem):
-    __key__ = "headers"
-
-    def send(self, data):
-        if self.__key__ in self.send_packet:
-            self.send_packet[self.__key__].update(data)
-        else:
-            self.send_packet[self.__key__] = data
-
-    def receive(self, data):
-        self.receive_packet[self.__key__] = data
-
-
 class Data(_H11PacketItem):
     __key__ = 'data'
 
@@ -156,6 +309,16 @@ class Data(_H11PacketItem):
 
     def receive(self, data):
         self.receive_packet[self.__key__] = data
+
+
+class Headers(Data):
+    __key__ = "headers"
+
+    def send(self, data):
+        if self.__key__ in self.send_packet:
+            self.send_packet[self.__key__].update(data)
+        else:
+            self.send_packet[self.__key__] = data
 
 
 class Json(Data):
