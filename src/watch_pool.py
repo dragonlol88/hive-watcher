@@ -45,7 +45,14 @@ class WatchPool(object):
 
         self.watch_bees = {}
         self.event_count = 0
-        self.qtimeout = 0
+
+        # See asyncio.event_loop at def _run_once
+        # <if self._ready or self._stopping:
+        #    timeout = 0>
+        # Read code line 1816 ~ 1822
+        # Because watcher pool always is in self._ready, timeout is zero.
+        # So main loop 0.1 sleep time has been ignored.
+        self.qtimeout = 0.1
 
         self._should_serving_fut = None
         self._start_serving_fut = None
@@ -55,7 +62,10 @@ class WatchPool(object):
 
         self.set_watchpool()
 
+        self.bee_manager = config.bee_manager
+
     async def start(self):
+
         loop = self.loop
         if loop is None:
             loop = asyncio.get_event_loop()
@@ -82,11 +92,15 @@ class WatchPool(object):
                                      config=config, waiter=waiter)
 
     def _finish_event(self, event, event_fut):
-        pj, tg, tp = event
-        watchbee = self._get_watch_bee(pj, tp)
+
+        project, _, typ = event
+        bee = self.bee_manager.find_bee(project)
+        if not bee:
+            bee = self.bee_manager.register_bee(project)
+
         loop = self.loop
         config = self.config
-        if tp in (CHANNEL_DELETED, FILE_DELETED):
+        if typ in (CHANNEL_DELETED, FILE_DELETED):
             processor = self._finish_callback_event(
                 loop, event, watchbee, config, event_fut)
         else:
@@ -313,11 +327,11 @@ class _CallbackEventProcess(_EventProcess):
     def process(self, event):
 
         proj, tg, typ = event
-        callback = self._watchbee.WATCH_CALLBACK
-        if typ not in callback:
+        callbacks = self._watchbee.BEE_CALLBACKS
+        if typ not in callbacks:
             raise KeyError("%s type must be in watch index" % typ)
 
-        cb_name = callback[typ]
+        cb_name = callbacks[typ]
         try:
             _cb = getattr(self._watchbee, cb_name)
             _cb(tg)
@@ -470,7 +484,8 @@ class _TransportH11EventProcess(_EventProcess):
             else:
                 self._mark_live_with_bee(ch)
             # cancel overtime handle when transfer task complete.
-            ov_handle.cancle()
+            if ov_handle and self._over_timeout_for_cancel:
+                ov_handle.cancle()
 
         elif transfer_task_state == c._PENDING:
             self._transfer_tasks.append((transfer_task, ov_handle))
@@ -493,11 +508,14 @@ class _TransportH11EventProcess(_EventProcess):
                 except e.TransportError as exc:
                     # log message
                     # because of transport error
+                    print(exc)
                     init_task_count -= 1
+                except Exception as exc:
                     print(exc)
             #if all of tasks are cancelled
             if init_task_count == 0:
                 self._raise_cancel_error_in_waiter()
+                break
             if init_task_count and tasks_count == 0:
                 break
             await asyncio.sleep(0)
@@ -524,3 +542,4 @@ class _TransportH11EventProcess(_EventProcess):
                 self.process_handle.cancel()
         self._cancel_transfer_tasks()
         self.__protocol_connected = False
+
